@@ -1,59 +1,69 @@
+import sys
+import sqlite3
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
+    QTableWidget, QTableWidgetItem, QPushButton, QLabel, QMessageBox,
+    QFileDialog, QDateEdit, QLineEdit,QFileDialog, QPushButton
+)
+from PyQt6.QtCore import QDate
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, PageBreak
+    SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer
 )
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 
-# Optional: register a custom font for a more professional look
-# pdfmetrics.registerFont(TTFont('Helvetica', 'Helvetica.ttf'))
+def init_db():
+    conn = sqlite3.connect('bills.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS client (
+            gst_number TEXT PRIMARY KEY,
+            company_name TEXT,
+            company_address TEXT
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS product (
+            sku TEXT PRIMARY KEY,
+            product_name TEXT,
+            hsn_code TEXT
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS bill (
+            bill_no TEXT,
+            product_sku TEXT,
+            client_gst TEXT,
+            date TEXT,
+            FOREIGN KEY (product_sku) REFERENCES product(sku),
+            FOREIGN KEY (client_gst) REFERENCES client(gst_number)
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
 
+init_db()
+
+
+# ---------------------------------------------------------------------
+# 1) PDF GENERATOR (Unchanged from your snippet)
+# ---------------------------------------------------------------------
 def generate_bill_pdf(data, filename="invoice.pdf"):
     """
-    Generates a PDF invoice/bill matching a design similar to the provided screenshot.
-    `data` is a dictionary containing all the fields needed.
-    Example structure of `data` (customize as needed):
-
-    data = {
-        "company_gstin": "21EQQS1807D1ZX",
-        "company_name": "KROZTEK INTEGRATED SOLUTION",
-        "office_address": "1983/0465, Badashabilata, Dhenkanal, Odisha - 759001",
-        "contact_info": "Office: 1983/0465, Badashabilata, Dhenkanal\nEmail: kroztekintegratedsolution@gmail.com",
-        "bill_to": "BEHERA TRADERS\nSujupadar, Jamankira, Sambalpur, Odisha\nGST No: 21ASBP1719K1ZX",
-        "ship_from": "CG Power and Industrial Solutions Limited\nRaisen, Madhya Pradesh 462046\nGST No: 3AAACC3840K4Z2",
-        "ship_to": "GANAPATI ENGINEERING WORKS\nSohela, Bargarh, Odisha, 768033\nGST No: 21ABWPB70B7D1ZX",
-        "bill_no": "061",
-        "bill_date": "15/01/2025",
-
-        "items": [
-            {
-                "sr_no": 1,
-                "description": "VFD WITH COMPLETE WIRED PANEL",
-                "hsn_sac": "8537",
-                "qty": 1,
-                "price": 112000,
-                "amount": 112000
-            },
-            # Add more items as needed
-        ],
-        "taxable_value": 112000,
-        "sgst_rate": 9,
-        "sgst_amount": 10080,
-        "cgst_rate": 9,
-        "cgst_amount": 10080,
-        "total": 132160,
-        "amount_in_words": "THIRTEEN LAKH TWENTY ONE THOUSAND SIX HUNDRED RUPEES ONLY",
-
-        # Footer/Static Info
-        "footer_bank_details": "Bank: XYZ Bank, A/c 123456789, IFSC: XYZB0001234",
-        "footer_note": "Office: 1983/0465, Badashabilata, Dhenkanal, Odisha - 759001",
-        "footer_signature_label": "Authorized Signatory",
-    }
+    Generates a PDF invoice/bill matching the design from your screenshot.
+    Expects a data dict with keys like:
+      company_gstin, company_name, office_address, contact_info,
+      bill_to, ship_from, ship_to, bill_no, bill_date,
+      items (list of {sr_no, description, hsn_sac, qty, price, amount}),
+      taxable_value, sgst_rate, sgst_amount, cgst_rate, cgst_amount,
+      total, amount_in_words,
+      footer_bank_details, footer_note, footer_signature_label
     """
-
-    # Create the PDF document
     doc = SimpleDocTemplate(
         filename,
         pagesize=A4,
@@ -64,24 +74,14 @@ def generate_bill_pdf(data, filename="invoice.pdf"):
     )
 
     styles = getSampleStyleSheet()
-    # Optional: define some custom paragraph styles
     styles.add(ParagraphStyle(name="TableHeader", alignment=1, fontSize=10, textColor=colors.white))
     styles.add(ParagraphStyle(name="NormalBold", fontName='Helvetica-Bold'))
 
-    # Container for all flowables
     elements = []
 
     # ----------------------------
-    # 1) HEADER SECTION
+    # (A) HEADER SECTION
     # ----------------------------
-    # We'll build a top table that has:
-    #  - Left: "GSTIN: ..."
-    #  - Center: "TAX INVOICE"
-    #  - Right: "Bill No. & Date"
-    #
-    # Then a second row with the company name in bold.
-    # Then a third row with office address and contact info.
-
     header_data = [
         [
             Paragraph(f"GSTIN: <b>{data.get('company_gstin', '')}</b>", styles["Normal"]),
@@ -99,19 +99,17 @@ def generate_bill_pdf(data, filename="invoice.pdf"):
             ""
         ]
     ]
-
-    # We'll use a 3-column table for alignment
-    header_table = Table(header_data, colWidths=[200, 120, 200])
+    header_table = Table(header_data, colWidths=[200, 140, 200])
     header_table.setStyle(TableStyle([
-        ("SPAN", (1,1), (2,1)),  # Company name across columns 1 and 2
-        ("SPAN", (0,2), (0,2)),  # Office address only in first cell
-        ("SPAN", (1,2), (2,2)),  # contact_info spanning second row
+        ("SPAN", (1,1), (2,1)),
+        ("SPAN", (0,2), (0,2)),
+        ("SPAN", (1,2), (2,2)),
         ("ALIGN", (1,0), (1,0), "CENTER"),
         ("ALIGN", (1,1), (1,1), "CENTER"),
         ("BOX", (0,0), (-1,-1), 1, colors.black),
         ("VALIGN", (0,0), (-1,-1), "TOP"),
-        ("BACKGROUND", (0,0), (2,0), colors.black),
-        ("TEXTCOLOR", (0,0), (2,0), colors.white),
+        ("BACKGROUND", (0,0), (2,0), colors.white),
+        ("TEXTCOLOR", (0,0), (2,0), colors.black),
         ("LEFTPADDING", (0,0), (-1,-1), 6),
         ("RIGHTPADDING", (0,0), (-1,-1), 6),
         ("TOPPADDING", (0,0), (-1,-1), 4),
@@ -121,12 +119,8 @@ def generate_bill_pdf(data, filename="invoice.pdf"):
     elements.append(Spacer(1, 10))
 
     # ----------------------------
-    # 2) BILL TO / SHIP FROM / SHIP TO
+    # (B) BILL TO / SHIP FROM / SHIP TO
     # ----------------------------
-    # We'll create a single table with three columns, each containing:
-    #  - Title (BILL TO / SHIP FROM / SHIP TO)
-    #  - Address lines
-
     addresses_data = [
         [
             Paragraph("<b>BILL TO</b><br/>" + data.get("bill_to", ""), styles["Normal"]),
@@ -148,7 +142,7 @@ def generate_bill_pdf(data, filename="invoice.pdf"):
     elements.append(Spacer(1, 10))
 
     # ----------------------------
-    # 3) ITEMS TABLE
+    # (C) ITEMS TABLE
     # ----------------------------
     # Columns: S. No, PARTICULARS, HSN/SAC, QTY, PRICE, AMOUNT
     items_data = [[
@@ -160,7 +154,6 @@ def generate_bill_pdf(data, filename="invoice.pdf"):
         Paragraph("<b>Amount</b>", styles["Normal"]),
     ]]
 
-    # Populate rows from data["items"]
     for item in data.get("items", []):
         sr_no = item.get("sr_no", "")
         desc = item.get("description", "")
@@ -177,14 +170,14 @@ def generate_bill_pdf(data, filename="invoice.pdf"):
             f"{amount:,.2f}",
         ])
 
-    items_table = Table(items_data, colWidths=[40, 180, 60, 40, 60, 60])
+    items_table = Table(items_data, colWidths=[40, 220, 80, 50, 70, 80])
     items_table.setStyle(TableStyle([
         ("BOX", (0,0), (-1,-1), 1, colors.black),
         ("INNERGRID", (0,0), (-1,-1), 0.5, colors.black),
         ("VALIGN", (0,0), (-1,-1), "TOP"),
         ("BACKGROUND", (0,0), (-1,0), colors.grey),
         ("TEXTCOLOR", (0,0), (-1,0), colors.white),
-        ("ALIGN", (3,1), (5,-1), "RIGHT"),  # Align numeric columns to right
+        ("ALIGN", (3,1), (5,-1), "RIGHT"),
         ("LEFTPADDING", (0,0), (-1,-1), 6),
         ("RIGHTPADDING", (0,0), (-1,-1), 6),
         ("TOPPADDING", (0,0), (-1,-1), 4),
@@ -194,11 +187,8 @@ def generate_bill_pdf(data, filename="invoice.pdf"):
     elements.append(Spacer(1, 10))
 
     # ----------------------------
-    # 4) TAX DETAILS & TOTALS
+    # (D) TAX DETAILS & TOTALS
     # ----------------------------
-    # We'll create a table summarizing: Taxable Value, SGST, CGST, and Grand Total.
-    # Then a separate line for the amount in words.
-
     taxable_value = data.get("taxable_value", 0)
     sgst_rate = data.get("sgst_rate", 0)
     sgst_amount = data.get("sgst_amount", 0)
@@ -212,7 +202,7 @@ def generate_bill_pdf(data, filename="invoice.pdf"):
         [f"CGST {cgst_rate}% on {taxable_value:,.2f}", f"{cgst_amount:,.2f}"],
         ["Total", f"{total:,.2f}"],
     ]
-    totals_table = Table(totals_data, colWidths=[300, 120])
+    totals_table = Table(totals_data, colWidths=[400, 140])
     totals_table.setStyle(TableStyle([
         ("BOX", (0,0), (-1,-1), 1, colors.black),
         ("INNERGRID", (0,0), (-1,-1), 0.5, colors.black),
@@ -233,18 +223,15 @@ def generate_bill_pdf(data, filename="invoice.pdf"):
         elements.append(Spacer(1, 10))
 
     # ----------------------------
-    # 5) FOOTER (STATIC OR SEMI-STATIC)
+    # (E) FOOTER (STATIC OR SEMI-STATIC)
     # ----------------------------
-    # According to your request, bank details, company name, date, or signature can be placed here.
-    # We'll create a table with 2 columns: left for bank details & note, right for signature.
-
     footer_data = [
         [
             Paragraph(f"<b>Bank Details:</b><br/>{data.get('footer_bank_details','')}<br/><br/>{data.get('footer_note','')}", styles["Normal"]),
             Paragraph(f"<br/><br/><b>{data.get('footer_signature_label','Authorized Signatory')}</b>", styles["Normal"]),
         ]
     ]
-    footer_table = Table(footer_data, colWidths=[300, 140])
+    footer_table = Table(footer_data, colWidths=[400, 140])
     footer_table.setStyle(TableStyle([
         ("BOX", (0,0), (-1,-1), 1, colors.black),
         ("VALIGN", (0,0), (-1,-1), "TOP"),
@@ -256,46 +243,386 @@ def generate_bill_pdf(data, filename="invoice.pdf"):
     ]))
     elements.append(footer_table)
 
-    # Build the PDF
     doc.build(elements)
-
     return filename
 
-# ----------------------------
-# EXAMPLE USAGE
-# ----------------------------
-if __name__ == "__main__":
-    sample_data = {
-        "company_gstin": "21EQQS1807D1ZX",
-        "company_name": "KROZTEK INTEGRATED SOLUTION",
-        "office_address": "1983/0465, Badashabilata, Dhenkanal, Odisha - 759001",
-        "contact_info": "Email: kroztekintegratedsolution@gmail.com\nPh: +91-9999999999",
-        "bill_to": "BEHERA TRADERS\nSujupadar, Jamankira, Sambalpur, Odisha\nGST No: 21ASBP1719K1ZX",
-        "ship_from": "CG Power and Industrial Solutions Limited\nRaisen, Madhya Pradesh 462046\nGST No: 3AAACC3840K4Z2",
-        "ship_to": "GANAPATI ENGINEERING WORKS\nSohela, Bargarh, Odisha, 768033\nGST No: 21ABWPB70B7D1ZX",
-        "bill_no": "061",
-        "bill_date": "15/01/2025",
-        "items": [
-            {
-                "sr_no": 1,
-                "description": "VFD WITH COMPLETE WIRED PANEL",
-                "hsn_sac": "8537",
-                "qty": 1,
-                "price": 112000,
-                "amount": 112000
-            }
-        ],
-        "taxable_value": 112000,
-        "sgst_rate": 9,
-        "sgst_amount": 10080,
-        "cgst_rate": 9,
-        "cgst_amount": 10080,
-        "total": 132160,
-        "amount_in_words": "THIRTEEN LAKH TWENTY ONE THOUSAND SIX HUNDRED RUPEES ONLY",
-        "footer_bank_details": "Bank: XYZ Bank, A/c 123456789, IFSC: XYZB0001234",
-        "footer_note": "Office: 1983/0465, Badashabilata, Dhenkanal, Odisha - 759001",
-        "footer_signature_label": "Authorized Signatory",
-    }
+# ---------------------------------------------------------------------
+# 2) PYQT6 APP: Takes minimal user input, everything else is static
+# ---------------------------------------------------------------------
+class BillApp(QWidget):
+   
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Minimal Invoice App")
+        self.setup_ui()
+        self.setup_db_connections()
 
-    generate_bill_pdf(sample_data, filename="sample_invoice.pdf")
-    print("PDF generated: sample_invoice.pdf")
+    def setup_db_connections(self):
+        # Connect GST fields to auto-fill
+        self.bill_to_gst.textChanged.connect(
+            lambda: self.auto_fill_client(self.bill_to_gst, 
+                                        self.bill_to_company,
+                                        self.bill_to_address))
+        
+        self.ship_to_gst.textChanged.connect(
+            lambda: self.auto_fill_client(self.ship_to_gst,
+                                        self.ship_to_company,
+                                        self.ship_to_address))
+        
+        self.ship_from_gst.textChanged.connect(
+            lambda: self.auto_fill_client(self.ship_from_gst,
+                                         self.ship_from_company,
+                                         self.ship_from_address))
+        
+        # Connect SKU field in table
+        self.items_table.cellChanged.connect(self.auto_fill_product)
+
+    def auto_fill_client(self, gst_input, name_input, address_input):
+        gst = gst_input.text().strip()
+        if len(gst) == 15:  # GSTIN validation
+            conn = sqlite3.connect('bills.db')
+            cursor = conn.cursor()
+            cursor.execute("SELECT company_name, company_address FROM client WHERE gst_number=?", (gst,))
+            result = cursor.fetchone()
+            if result:
+                name_input.setText(result[0])
+                address_input.setText(result[1])
+            conn.close()
+
+    def auto_fill_product(self, row, column):
+        if column == 1:  # SKU column
+            sku_item = self.items_table.item(row, 1)
+            sku = sku_item.text().strip() if sku_item else ""
+            if sku:
+                conn = sqlite3.connect('bills.db')
+                cursor = conn.cursor()
+                cursor.execute("SELECT product_name, hsn_code FROM product WHERE sku=?", (sku,))
+                result = cursor.fetchone()
+                if result:
+                    self.items_table.setItem(row, 3, QTableWidgetItem(result[0]))  # Product Name
+                    self.items_table.setItem(row, 4, QTableWidgetItem(result[1]))  # HSN
+                conn.close()
+
+    def save_to_database(self, data):
+        conn = sqlite3.connect('bills.db')
+        cursor = conn.cursor()
+        
+        try:
+            # Save clients
+            clients = [
+                (self.bill_to_gst.text(), self.bill_to_company.text(), self.bill_to_address.text()),
+                (self.ship_to_gst.text(), self.ship_to_company.text(), self.ship_to_address.text()),
+                (self.ship_from_gst.text(), self.ship_from_company.text(), self.ship_from_address.text())
+            ]
+            
+            for gst, name, addr in clients:
+                if gst:
+                    cursor.execute('''
+                        INSERT INTO client (gst_number, company_name, company_address)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(gst_number) DO UPDATE SET
+                            company_name=excluded.company_name,
+                            company_address=excluded.company_address
+                    ''', (gst, name, addr))
+            
+            # Save products
+            for row in range(self.items_table.rowCount()):
+                sku = self.items_table.item(row, 1).text()
+                name = self.items_table.item(row, 3).text()
+                hsn = self.items_table.item(row, 4).text()
+                
+                if sku:
+                    cursor.execute('''
+                        INSERT INTO product (sku, product_name, hsn_code)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(sku) DO UPDATE SET
+                            product_name=excluded.product_name,
+                            hsn_code=excluded.hsn_code
+                    ''', (sku, name, hsn))
+            
+            # Generate bill number
+            bill_date = QDate.currentDate().toString("yyyyMMdd")
+            cursor.execute("SELECT MAX(bill_no) FROM bill WHERE bill_no LIKE ?", (f"INV-{bill_date}-%",))
+            max_bill = cursor.fetchone()[0]
+            bill_no = f"INV-{bill_date}-{int(max_bill.split('-')[-1]) + 1 if max_bill else 1:04d}"
+
+            # Save bill items
+            client_gst = self.bill_to_gst.text()
+            for row in range(self.items_table.rowCount()):
+                sku = self.items_table.item(row, 1).text()
+                if sku and client_gst:
+                    cursor.execute('''
+                        INSERT INTO bill (bill_no, product_sku, client_gst, date)
+                        VALUES (?, ?, ?, ?)
+                    ''', (bill_no, sku, client_gst, data['bill_date']))
+            
+            conn.commit()
+            return bill_no
+            
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
+
+    def generate_pdf(self):
+        try:
+            path, _ = QFileDialog.getSaveFileName(self, "Save Invoice", "invoice.pdf", "PDF Files (*.pdf)")
+            if not path:
+                return
+
+            # Collect data as before
+            data = {
+                # ... your existing data collection code ...
+                "bill_date": self.date_edit.date().toString("dd/MM/yyyy"),
+                # ... rest of your data collection ...
+            }
+
+            # Save to database and get generated bill number
+            bill_no = self.save_to_database(data)
+            data['bill_no'] = bill_no  # Update data with generated bill number
+
+            # Generate PDF
+            generate_bill_pdf(data, filename=path)
+            self.status_label.setText(f"PDF generated: {path}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+
+    def setup_ui(self):
+        main_layout = QVBoxLayout()
+
+        # --- (A) Date Field (QDateEdit with calendar) ---
+        date_layout = QHBoxLayout()
+        date_label = QLabel("Bill Date:")
+        self.date_edit = QDateEdit()
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDate(QDate.currentDate())
+
+        signature_label = QLabel("Signature:")
+        self.signature_upload = QLineEdit()
+        self.signature_upload.setPlaceholderText("Upload Signature")
+        self.signature_upload.setReadOnly(True)  # Make it read-only to prevent manual input
+
+        upload_button = QPushButton("Choose File")
+        upload_button.clicked.connect(self.browse_signature)
+
+        date_layout.addWidget(signature_label)
+        date_layout.addWidget(self.signature_upload)
+        date_layout.addWidget(upload_button)
+
+        date_layout.addWidget(date_label)
+        date_layout.addWidget(self.date_edit)
+        # date_layout.addWidget(signature_label)
+        # date_layout.addWidget(self.signature_upload)
+        main_layout.addLayout(date_layout)
+
+
+        # --- (B) Addresses: Bill To, Ship From, Ship To ---
+        bill_to_layout = QHBoxLayout()
+        bill_to_label = QLabel("Bill To:")
+        self.bill_to_company = QLineEdit()
+        self.bill_to_company.setPlaceholderText("Bill To Company")
+        self.bill_to_address = QLineEdit()
+        self.bill_to_address.setPlaceholderText("Bill To Address")
+        self.bill_to_gst = QLineEdit()
+        self.bill_to_gst.setPlaceholderText("Bill To GST")
+        bill_to_layout.addWidget(bill_to_label)
+        bill_to_layout.addWidget(self.bill_to_company)
+        bill_to_layout.addWidget(self.bill_to_address)
+        bill_to_layout.addWidget(self.bill_to_gst)
+        main_layout.addLayout(bill_to_layout)
+
+        #--- Ship To Layout
+        ship_to_layout = QHBoxLayout()
+        ship_to_label = QLabel("Ship To:")
+        self.ship_to_company = QLineEdit()
+        self.ship_to_company.setPlaceholderText("Ship To Company")
+        self.ship_to_address = QLineEdit()
+        self.ship_to_address.setPlaceholderText("Ship To Address")
+        self.ship_to_gst = QLineEdit()
+        self.ship_to_gst.setPlaceholderText("Ship To GST")
+        ship_to_layout.addWidget(ship_to_label)
+        ship_to_layout.addWidget(self.ship_to_company)
+        ship_to_layout.addWidget(self.ship_to_address)
+        ship_to_layout.addWidget(self.ship_to_gst)
+        main_layout.addLayout(ship_to_layout)
+
+        #---Ship from layout
+        ship_from_layout = QHBoxLayout()
+        ship_from_label = QLabel("Ship From:")
+        self.ship_from_company = QLineEdit()
+        self.ship_from_company.setPlaceholderText("Ship From Company")
+        self.ship_from_address = QLineEdit()
+        self.ship_from_address.setPlaceholderText("Ship From Address")
+        self.ship_from_gst = QLineEdit()
+        self.ship_from_gst.setPlaceholderText("Ship From GST")
+        ship_from_layout.addWidget(ship_from_label)
+        ship_from_layout.addWidget(self.ship_from_company)
+        ship_from_layout.addWidget(self.ship_from_address)
+        ship_from_layout.addWidget(self.ship_from_gst)
+        main_layout.addLayout(ship_from_layout)
+
+
+        # --- (C) Items Table: S. No, Particulars, HSN/SAC, Qty, Price, Amount
+        self.items_table = QTableWidget(0, 8)
+        self.items_table.setHorizontalHeaderLabels([
+           "SL No." , "SKU Code", "Serial No", "Product Name", "HSN", "QTY", "Price per Unit", "Amount"
+        ])
+        main_layout.addWidget(QLabel("Items:"))
+        main_layout.addWidget(self.items_table)
+
+        # Add/Remove buttons
+        btn_row = QHBoxLayout()
+        add_btn = QPushButton("Add Row")
+        add_btn.clicked.connect(self.add_item_row)
+        rem_btn = QPushButton("Remove Row")
+        rem_btn.clicked.connect(self.remove_item_row)
+        btn_row.addWidget(add_btn)
+        btn_row.addWidget(rem_btn)
+        main_layout.addLayout(btn_row)
+
+        # --- (D) Generate PDF Button ---
+        generate_btn = QPushButton("Generate PDF")
+        generate_btn.clicked.connect(self.generate_pdf)
+        main_layout.addWidget(generate_btn)
+
+        # Status label
+        self.status_label = QLabel("")
+        main_layout.addWidget(self.status_label)
+
+        self.setLayout(main_layout)
+
+    def add_item_row(self):
+        """Add a new row with placeholders."""
+        row_count = self.items_table.rowCount()
+        self.items_table.insertRow(row_count)
+
+        # S. No. is row+1
+        s_no_item = QTableWidgetItem(str(row_count + 1))
+        self.items_table.setItem(row_count, 0, s_no_item)
+
+        # Placeholders for the rest
+        self.items_table.setItem(row_count, 1, QTableWidgetItem(""))  # Particulars
+        self.items_table.setItem(row_count, 2, QTableWidgetItem(""))  # HSN/SAC
+        self.items_table.setItem(row_count, 3, QTableWidgetItem("0")) # Qty
+        self.items_table.setItem(row_count, 4, QTableWidgetItem("0")) # Price
+        self.items_table.setItem(row_count, 5, QTableWidgetItem("0")) # Amount
+
+    def remove_item_row(self):
+        """Remove the selected row(s)."""
+        selected = self.items_table.selectedItems()
+        if not selected:
+            QMessageBox.warning(self, "Warning", "No row selected!")
+            return
+        rows = set(item.row() for item in selected)
+        for row in sorted(rows, reverse=True):
+            self.items_table.removeRow(row)
+
+    def generate_pdf(self):
+        """Gather minimal user input, fill in static data, create PDF."""
+        try:
+            # Let user pick a save path
+            path, _ = QFileDialog.getSaveFileName(self, "Save Invoice", "invoice.pdf", "PDF Files (*.pdf)")
+            if not path:
+                return
+
+            # 1) Collect addresses & date from user
+            bill_date_str = self.date_edit.date().toString("dd/MM/yyyy")
+
+            # Updated: Correctly fetch text from input fields
+            bill_to_str = f"{self.bill_to_company.text().strip()}, {self.bill_to_address.text().strip()}, GST: {self.bill_to_gst.text().strip()}"
+            ship_from_str = f"{self.ship_from_company.text().strip()}, {self.ship_from_address.text().strip()}, GST: {self.ship_from_gst.text().strip()}"
+            ship_to_str = f"{self.ship_to_company.text().strip()}, {self.ship_to_address.text().strip()}, GST: {self.ship_to_gst.text().strip()}"
+
+            # 2) Collect items
+            items = []
+            subtotal = 0.0
+            for row in range(self.items_table.rowCount()):
+                s_no = row + 1
+                self.items_table.setItem(row, 0, QTableWidgetItem(str(s_no)))
+
+                desc_item = self.items_table.item(row, 1)
+                hsn_item = self.items_table.item(row, 2)
+                qty_item = self.items_table.item(row, 3)
+                price_item = self.items_table.item(row, 4)
+                amt_item = self.items_table.item(row, 5)
+
+                desc = desc_item.text() if desc_item else ""
+                hsn = hsn_item.text() if hsn_item else ""
+                try:
+                    qty = float(qty_item.text()) if qty_item else 0.0
+                except ValueError:
+                    qty = 0.0
+                try:
+                    price = float(price_item.text()) if price_item else 0.0
+                except ValueError:
+                    price = 0.0
+
+                amount = qty * price
+                amt_item.setText(f"{amount:.2f}")
+                subtotal += amount
+
+                items.append({
+                    "sr_no": s_no,
+                    "description": desc,
+                    "hsn_sac": hsn,
+                    "qty": qty,
+                    "price": price,
+                    "amount": amount
+                })
+
+            # 3) Tax calculations
+            sgst_rate = 9
+            cgst_rate = 9
+            sgst_amount = subtotal * (sgst_rate / 100)
+            cgst_amount = subtotal * (cgst_rate / 100)
+            total = subtotal + sgst_amount + cgst_amount
+
+            # 4) Build the data dictionary
+            data = {
+                "company_gstin": "21EQQS1807D1ZX",
+                "company_name": "KROZTEK INTEGRATED SOLUTION",
+                "office_address": "1983/0465, Badashabilata, Dhenkanal, Odisha - 759001",
+                "contact_info": "Email: kroztekintegratedsolution@gmail.com\nPh: +91-9999999999",
+                "bill_to": bill_to_str,
+                "ship_from": ship_from_str,
+                "ship_to": ship_to_str,
+                "bill_no": "061",  # Example bill number
+                "bill_date": bill_date_str,
+
+                "items": items,
+                "taxable_value": subtotal,
+                "sgst_rate": sgst_rate,
+                "sgst_amount": sgst_amount,
+                "cgst_rate": cgst_rate,
+                "cgst_amount": cgst_amount,
+                "total": total,
+                "amount_in_words": "",  # Optional
+
+                "footer_bank_details": "Bank: XYZ Bank, A/c 123456789, IFSC: XYZB0001234",
+                "footer_note": "Office: 1983/0465, Badashabilata, Dhenkanal, Odisha - 759001",
+                "footer_signature_label": "Authorized Signatory",
+            }
+
+            # 5) Generate the PDF
+            generate_bill_pdf(data, filename=path)
+            self.status_label.setText(f"PDF generated: {path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+
+    def browse_signature(self):
+        file_dialog = QFileDialog()
+        file_path, _ = file_dialog.getOpenFileName(self, "Select Signature", "", "Images (*.png *.jpg *.jpeg *.bmp);;All Files (*)")
+        if file_path:
+            self.signature_upload.setText(file_path)
+
+# ---------------------------------------------------------------------
+# 3) RUN THE APP
+# ---------------------------------------------------------------------
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = BillApp()
+    window.show()
+    sys.exit(app.exec())
