@@ -380,22 +380,46 @@ class DatabaseManager:
         
         return companies
     
+    def get_company_by_id(self, company_id):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM companies WHERE id = ?', (company_id,))
+        
+        company = cursor.fetchone()
+        conn.close()
+        
+        if company:
+            return dict(company)
+        return None
+    
     def update_company(self, company_id, company_name, address, gst_number):
         conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
+            # First check if the new GST number conflicts with any other company
+            cursor.execute('''
+            SELECT id FROM companies 
+            WHERE gst_number = ? AND id != ?
+            ''', (gst_number, company_id))
+            
+            if cursor.fetchone():
+                conn.close()
+                return False, "GST Number already exists for another company"
+            
             cursor.execute('''
             UPDATE companies 
             SET company_name = ?, address = ?, gst_number = ?
             WHERE id = ?
             ''', (company_name, address, gst_number, company_id))
+            
             conn.commit()
             conn.close()
             return True, None
-        except sqlite3.IntegrityError:
+        except Exception as e:
             conn.close()
-            return False, "GST Number already exists"
+            return False, str(e)
     
     def delete_company(self, company_id):
         conn = self.get_connection()
@@ -438,11 +462,11 @@ class DatabaseManager:
             conn.close()
             return None, "SKU Code already exists"
     
-    def get_product_by_sku(self, sku_code):
+    def get_product_by_id(self, product_id):
         conn = self.get_connection()
         cursor = conn.cursor()
         
-        cursor.execute('SELECT * FROM products WHERE sku_code = ?', (sku_code,))
+        cursor.execute('SELECT * FROM products WHERE id = ?', (product_id,))
         
         product = cursor.fetchone()
         conn.close()
@@ -639,6 +663,24 @@ class DatabaseManager:
             }
         return None
 
+    def update_invoice(self, bill_number, new_date, new_advance):
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+            UPDATE invoices 
+            SET bill_date = ?, advance_amount = ?
+            WHERE bill_number = ?
+            ''', (new_date, new_advance, bill_number))
+            
+            conn.commit()
+            conn.close()
+            return True, None
+        except Exception as e:
+            conn.close()
+            return False, str(e)
+
 class LoadingScreen(QDialog):
     def __init__(self, message="Processing...", parent=None):
         super().__init__(parent)
@@ -746,14 +788,34 @@ class InvoiceItem(QFrame):
             self.hsn_code.clear()
             self.price_per_unit.setValue(0)
             self.amount.setValue(0)
+            # Find the parent GenerateBillTab and update total
+            parent = self.parent()
+            while parent and not isinstance(parent, GenerateBillTab):
+                parent = parent.parent()
+            if parent:
+                parent.calculate_total()
     
     def calculate_amount(self):
         qty = self.quantity.value()
         price = self.price_per_unit.value()
         self.amount.setValue(qty * price)
+        # Find the parent GenerateBillTab and update total
+        parent = self.parent()
+        while parent and not isinstance(parent, GenerateBillTab):
+            parent = parent.parent()
+        if parent:
+            parent.calculate_total()
     
     def remove_item(self):
-        self.parent().remove_product_item(self)
+        # Find the parent GenerateBillTab
+        parent = self.parent()
+        while parent and not isinstance(parent, GenerateBillTab):
+            parent = parent.parent()
+        
+        if parent and hasattr(parent, 'remove_product_item'):
+            parent.remove_product_item(self)
+        else:
+            QMessageBox.warning(self, "Error", "Could not remove product item")
     
     def get_data(self):
         if not self.product_id:
@@ -784,68 +846,56 @@ class GenerateBillTab(QWidget):
         client_group = QGroupBox("Client Section")
         client_layout = QGridLayout()
         
-        # Bill To Company
-        client_layout.addWidget(QLabel("Bill To:"), 0, 0)
-        
+        # Bill To Company (Left Column)
+        bill_to_group = QGroupBox("Bill To")
         bill_to_layout = QFormLayout()
         self.bill_to_gst = QLineEdit()
         self.bill_to_gst.setPlaceholderText("Enter GST Number")
         self.bill_to_gst.textChanged.connect(self.bill_to_gst_changed)
-        
         self.bill_to_name = QLineEdit()
         self.bill_to_name.setPlaceholderText("Company Name")
-        
         self.bill_to_address = QTextEdit()
         self.bill_to_address.setPlaceholderText("Company Address")
-        self.bill_to_address.setMaximumHeight(60)
-        
+        self.bill_to_address.setMaximumHeight(80)
         bill_to_layout.addRow("GST Number:", self.bill_to_gst)
         bill_to_layout.addRow("Company Name:", self.bill_to_name)
         bill_to_layout.addRow("Address:", self.bill_to_address)
+        bill_to_group.setLayout(bill_to_layout)
+        client_layout.addWidget(bill_to_group, 0, 0)
         
-        client_layout.addLayout(bill_to_layout, 0, 1)
-        
-        # Ship To Company
-        client_layout.addWidget(QLabel("Ship To:"), 0, 2)
-        
+        # Ship To Company (Middle Column)
+        ship_to_group = QGroupBox("Ship To")
         ship_to_layout = QFormLayout()
         self.ship_to_gst = QLineEdit()
         self.ship_to_gst.setPlaceholderText("Enter GST Number")
         self.ship_to_gst.textChanged.connect(self.ship_to_gst_changed)
-        
         self.ship_to_name = QLineEdit()
         self.ship_to_name.setPlaceholderText("Company Name")
-        
         self.ship_to_address = QTextEdit()
         self.ship_to_address.setPlaceholderText("Company Address")
-        self.ship_to_address.setMaximumHeight(60)
-        
+        self.ship_to_address.setMaximumHeight(80)
         ship_to_layout.addRow("GST Number:", self.ship_to_gst)
         ship_to_layout.addRow("Company Name:", self.ship_to_name)
         ship_to_layout.addRow("Address:", self.ship_to_address)
+        ship_to_group.setLayout(ship_to_layout)
+        client_layout.addWidget(ship_to_group, 0, 1)
         
-        client_layout.addLayout(ship_to_layout, 0, 3)
-        
-        # Ship From Company
-        client_layout.addWidget(QLabel("Ship From:"), 1, 0)
-        
+        # Ship From Company (Right Column)
+        ship_from_group = QGroupBox("Ship From")
         ship_from_layout = QFormLayout()
         self.ship_from_gst = QLineEdit()
         self.ship_from_gst.setPlaceholderText("Enter GST Number")
         self.ship_from_gst.textChanged.connect(self.ship_from_gst_changed)
-        
         self.ship_from_name = QLineEdit()
         self.ship_from_name.setPlaceholderText("Company Name")
-        
         self.ship_from_address = QTextEdit()
         self.ship_from_address.setPlaceholderText("Company Address")
-        self.ship_from_address.setMaximumHeight(60)
-        
+        self.ship_from_address.setMaximumHeight(80)
         ship_from_layout.addRow("GST Number:", self.ship_from_gst)
         ship_from_layout.addRow("Company Name:", self.ship_from_name)
         ship_from_layout.addRow("Address:", self.ship_from_address)
-        
-        client_layout.addLayout(ship_from_layout, 1, 1, 1, 3)
+        ship_from_group.setLayout(ship_from_layout)
+        client_layout.addWidget(ship_from_group, 0, 2)
         
         client_group.setLayout(client_layout)
         main_layout.addWidget(client_group)
@@ -933,16 +983,28 @@ class GenerateBillTab(QWidget):
         bill_group.setLayout(bill_layout)
         main_layout.addWidget(bill_group)
         
+        # Button Layout
+        button_layout = QHBoxLayout()
+        
         # Generate Bill Button
         self.generate_btn = QPushButton("Generate Bill")
         self.generate_btn.setFixedHeight(40)
         self.generate_btn.setFont(QFont("Arial", 12))
         self.generate_btn.clicked.connect(self.generate_bill)
-        main_layout.addWidget(self.generate_btn)
+        button_layout.addWidget(self.generate_btn)
+        
+        # Print Bill Button
+        self.print_btn = QPushButton("Print Bill")
+        self.print_btn.setFixedHeight(40)
+        self.print_btn.setFont(QFont("Arial", 12))
+        self.print_btn.clicked.connect(self.print_bill)
+        button_layout.addWidget(self.print_btn)
+        
+        main_layout.addLayout(button_layout)
 
         # Create QLabel to show the PDF save path
         self.pdf_path_label = QLabel("", self)
-        self.pdf_path_label.setStyleSheet("color: green; font-size: 12pt;")
+        self.pdf_path_label.setStyleSheet("color: white; font-size: 14pt;")
         self.pdf_path_label.setGeometry(10, self.height() - 30, self.width() - 20, 20)
         self.pdf_path_label.setAlignment(Qt.AlignLeft)
         main_layout.addWidget(self.pdf_path_label)
@@ -956,6 +1018,9 @@ class GenerateBillTab(QWidget):
         
         # Make sure we can see the newly added item
         self.product_scroll.ensureWidgetVisible(item)
+        
+        # Update total after adding new item
+        self.calculate_total()
     
     def remove_product_item(self, item):
         if item in self.product_items:
@@ -1026,8 +1091,6 @@ class GenerateBillTab(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to save signature: {str(e)}")
     
-# Add this after the existing code in the GenerateBillTab class
-
     def calculate_total(self):
         total = 0.0
         for item in self.product_items:
@@ -1036,12 +1099,45 @@ class GenerateBillTab(QWidget):
                 total += data['amount']
         self.total_amount.setValue(total)
 
-    def generate_bill(self):
+    def print_bill(self):
         # Show loading screen
-        loading = LoadingScreen("Generating Invoice...", self)
+        loading = LoadingScreen("Preparing Bill for Printing...", self)
         loading.show()
         QApplication.processEvents()
 
+        try:
+            # First save the bill to database and generate PDF
+            bill_number = self.save_bill_to_database()
+            if not bill_number:
+                return
+
+            # Ask user to choose where to save the PDF temporarily
+            temp_pdf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_bill.pdf")
+            
+            # Generate PDF
+            pdf_path = generate_bill_pdf(self.prepare_invoice_data(), temp_pdf_path)
+            
+            # Show print dialog
+            printer = QPrinter(QPrinter.HighResolution)
+            dialog = QPrintDialog(printer, self)
+            
+            if dialog.exec_() == QPrintDialog.Accepted:
+                # Print the PDF
+                os.system(f'lpr -P {printer.printerName()} "{pdf_path}"')
+                QMessageBox.information(self, "Success", "Bill printed successfully!")
+            
+            # Clean up temporary file
+            try:
+                os.remove(temp_pdf_path)
+            except:
+                pass
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to print bill: {str(e)}")
+        finally:
+            loading.close()
+
+    def save_bill_to_database(self):
         try:
             # Validate company information
             if not all([self.bill_to_gst.text(), self.ship_to_gst.text(), 
@@ -1065,7 +1161,6 @@ class GenerateBillTab(QWidget):
                     companies.append(company['id'])
 
             # Validate products
-            # Validate products
             items = []
             for item in self.product_items:
                 data = item.get_data()
@@ -1080,10 +1175,7 @@ class GenerateBillTab(QWidget):
             if not items:
                 raise ValueError("At least one product item required")
 
-
             # Prepare invoice data
-            # Correct way to save total amount
-            # Prepare dynamic invoice data
             invoice_data = {
                 'bill_date': self.bill_date.date().toString("yyyy-MM-dd"),
                 'bill_to_company_id': companies[0],
@@ -1095,46 +1187,93 @@ class GenerateBillTab(QWidget):
                 'items': items
             }
 
-            # Calculate tax details dynamically
-            taxable_value = sum(item['amount'] for item in items)
-            sgst_rate = 9  # Static for now; can be dynamic if needed
-            cgst_rate = 9  # Static for now; can be dynamic if needed
-            sgst_amount = taxable_value * sgst_rate / 100
-            cgst_amount = taxable_value * cgst_rate / 100
-            total = taxable_value + sgst_amount + cgst_amount
-            amount_in_words = "Two Thousand Sixty-Five Only"  # Replace with a function if needed
-
-            # Prepare data for PDF generation
-            data = get_dynamic_invoice_data(
-                bill_to=f"{self.bill_to_name.text()}\n{self.bill_to_address.toPlainText()}\nGSTIN: {self.bill_to_gst.text()}",
-                ship_to=f"{self.ship_to_name.text()}\n{self.ship_to_address.toPlainText()}\nGSTIN: {self.ship_to_gst.text()}",
-                ship_from=f"{self.ship_from_name.text()}\n{self.ship_from_address.toPlainText()}\nGSTIN: {self.ship_from_gst.text()}",
-                bill_no=invoice_data['bill_to_company_id'],  # Replace with actual bill number
-                bill_date=invoice_data['bill_date'],
-                items=items,
-                taxable_value=taxable_value,
-                sgst_rate=sgst_rate,
-                sgst_amount=sgst_amount,
-                cgst_rate=cgst_rate,
-                cgst_amount=cgst_amount,
-                total=total,
-                amount_in_words=amount_in_words,
-                signature_path=self.signature_path
+            # Create invoice in database
+            bill_number, error = self.db_manager.create_invoice(
+                invoice_data['bill_date'],
+                invoice_data['bill_to_company_id'],
+                invoice_data['ship_to_company_id'],
+                invoice_data['ship_from_company_id'],
+                invoice_data['signature_path'],
+                invoice_data['advance_amount'],
+                invoice_data['total_amount'],
+                invoice_data['items']
             )
 
-            # Generate PDF
-            #pdf_path = generate_bill_pdf(data)
-            #QMessageBox.information(self, "Success", f"Invoice saved and PDF generated at {pdf_path}!")
-            
+            if error:
+                raise ValueError(f"Failed to create invoice: {error}")
 
-           # Ask user to choose where to save the PDF
+            return bill_number
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+            return None
+
+    def prepare_invoice_data(self):
+        # Calculate tax details dynamically
+        items = []
+        for item in self.product_items:
+            data = item.get_data()
+            if data:
+                product_details = self.db_manager.get_product_details(data['product_id'])
+                if product_details:
+                    data.update(product_details)
+                    items.append(data)
+
+        taxable_value = sum(item['amount'] for item in items)
+        sgst_rate = 9  # Static for now; can be dynamic if needed
+        cgst_rate = 9  # Static for now; can be dynamic if needed
+        sgst_amount = taxable_value * sgst_rate / 100
+        cgst_amount = taxable_value * cgst_rate / 100
+        total = taxable_value + sgst_amount + cgst_amount
+
+        # Handle signature path
+        signature_path = self.signature_path
+        if not signature_path:
+            # Use default signature if none is selected
+            default_signature = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Signature.png")
+            if os.path.exists(default_signature):
+                signature_path = default_signature
+            else:
+                QMessageBox.warning(self, "Warning", "Default signature file not found. Please add a signature.")
+                return None
+
+        return get_dynamic_invoice_data(
+            bill_to=f"{self.bill_to_name.text()}\n{self.bill_to_address.toPlainText()}\nGSTIN: {self.bill_to_gst.text()}",
+            ship_to=f"{self.ship_to_name.text()}\n{self.ship_to_address.toPlainText()}\nGSTIN: {self.ship_to_gst.text()}",
+            ship_from=f"{self.ship_from_name.text()}\n{self.ship_from_address.toPlainText()}\nGSTIN: {self.ship_from_gst.text()}",
+            bill_no=self.bill_number.text(),
+            bill_date=self.bill_date.date().toString("yyyy-MM-dd"),
+            items=items,
+            taxable_value=taxable_value,
+            sgst_rate=sgst_rate,
+            sgst_amount=sgst_amount,
+            cgst_rate=cgst_rate,
+            cgst_amount=cgst_amount,
+            total=total,
+            amount_in_words=amount_to_words(total),
+            signature_path=signature_path
+        )
+
+    def generate_bill(self):
+        # Show loading screen
+        loading = LoadingScreen("Generating Invoice...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            # Save to database first
+            bill_number = self.save_bill_to_database()
+            if not bill_number:
+                return
+
+            # Ask user to choose where to save the PDF
             save_path, _ = QFileDialog.getSaveFileName(self, "Save PDF", "", "PDF Files (*.pdf)")
             if save_path:
                 if not save_path.endswith(".pdf"):
                     save_path += ".pdf"
 
                 # Generate PDF
-                pdf_path = generate_bill_pdf(data, save_path)
+                pdf_path = generate_bill_pdf(self.prepare_invoice_data(), save_path)
                 QMessageBox.information(self, "Success", f"Invoice saved and PDF generated at {pdf_path}!")
 
                 # Display the save path at the bottom of the app
@@ -1143,10 +1282,6 @@ class GenerateBillTab(QWidget):
                 self.reset_form()
             else:
                 QMessageBox.warning(self, "Cancelled", "PDF save cancelled.")
-
-            # QMessageBox.information(self, "Success", 
-            #                        f"Invoice {bill_number} created successfully!")
-            #self.reset_form()
 
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
@@ -1190,58 +1325,184 @@ class DisplayBillsTab(QWidget):
     def init_ui(self):
         layout = QVBoxLayout()
         
+        # Button layout at the top
+        btn_layout = QHBoxLayout()
+        
+        # Edit button
+        edit_btn = QPushButton("Edit Invoice")
+        edit_btn.clicked.connect(self.edit_invoice)
+        btn_layout.addWidget(edit_btn)
+        
+        # Add some spacing
+        btn_layout.addStretch()
+        
+        # Refresh button
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(self.load_invoices)
+        btn_layout.addWidget(refresh_btn)
+        
+        layout.addLayout(btn_layout)
+        
         # Invoice table
         self.table = QTableWidget()
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(["Bill Number", "Date", "Bill To", "Total", "Advance"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.cellDoubleClicked.connect(self.show_invoice_details)
         layout.addWidget(self.table)
-        
-        # Refresh button
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.clicked.connect(self.load_invoices)
-        layout.addWidget(refresh_btn)
         
         self.setLayout(layout)
 
     def load_invoices(self):
-        self.table.setRowCount(0)
-        invoices = self.db_manager.get_all_invoices()
-        for invoice in invoices:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            self.table.setItem(row, 0, QTableWidgetItem(invoice['bill_number']))
-            self.table.setItem(row, 1, QTableWidgetItem(invoice['bill_date']))
-            self.table.setItem(row, 2, QTableWidgetItem(invoice['bill_to_name']))
-            self.table.setItem(row, 3, QTableWidgetItem(f"{invoice['total_amount']:.2f}"))
-            self.table.setItem(row, 4, QTableWidgetItem(f"{invoice['advance_amount']:.2f}"))
+        # Show loading screen
+        loading = LoadingScreen("Loading Invoices...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            self.table.setRowCount(0)
+            invoices = self.db_manager.get_all_invoices()
+            for invoice in invoices:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                self.table.setItem(row, 0, QTableWidgetItem(invoice['bill_number']))
+                self.table.setItem(row, 1, QTableWidgetItem(invoice['bill_date']))
+                self.table.setItem(row, 2, QTableWidgetItem(invoice['bill_to_name']))
+                self.table.setItem(row, 3, QTableWidgetItem(f"{invoice['total_amount']:.2f}"))
+                self.table.setItem(row, 4, QTableWidgetItem(f"{invoice['advance_amount']:.2f}"))
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load invoices: {str(e)}")
+        finally:
+            loading.close()
+
+    def edit_invoice(self):
+        selected = self.table.currentRow()
+        if selected == -1:
+            QMessageBox.warning(self, "Error", "Please select an invoice to edit")
+            return
+        
+        bill_number = self.table.item(selected, 0).text()
+        
+        # Show loading screen
+        loading = LoadingScreen("Loading Invoice Details...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            invoice = self.db_manager.get_invoice_by_bill_number(bill_number)
+            if not invoice:
+                QMessageBox.critical(self, "Error", "Invoice not found")
+                return
+            
+            # Create edit dialog
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"Edit Invoice - {bill_number}")
+            dialog.setMinimumWidth(600)
+            layout = QVBoxLayout()
+            
+            # Form layout for basic details
+            form_layout = QFormLayout()
+            
+            # Date edit
+            date_edit = QDateEdit()
+            date_edit.setDate(QDate.fromString(invoice['bill_date'], "yyyy-MM-dd"))
+            date_edit.setCalendarPopup(True)
+            form_layout.addRow("Bill Date:", date_edit)
+            
+            # Advance amount
+            advance = QDoubleSpinBox()
+            advance.setMaximum(999999.99)
+            advance.setValue(invoice['advance_amount'])
+            form_layout.addRow("Advance Amount:", advance)
+            
+            layout.addLayout(form_layout)
+            
+            # Add buttons
+            buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+            buttons.accepted.connect(lambda: self.save_invoice_changes(
+                dialog, bill_number, date_edit.date().toString("yyyy-MM-dd"), advance.value()
+            ))
+            buttons.rejected.connect(dialog.reject)
+            layout.addWidget(buttons)
+            
+            dialog.setLayout(layout)
+            dialog.exec_()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load invoice details: {str(e)}")
+        finally:
+            loading.close()
+
+    def save_invoice_changes(self, dialog, bill_number, new_date, new_advance):
+        # Show loading screen
+        loading = LoadingScreen("Saving Changes...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            success, error = self.db_manager.update_invoice(bill_number, new_date, new_advance)
+            if error:
+                QMessageBox.critical(self, "Error", error)
+            else:
+                self.load_invoices()
+                QMessageBox.information(self, "Success", "Invoice updated successfully!")
+                dialog.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to update invoice: {str(e)}")
+        finally:
+            loading.close()
 
     def show_invoice_details(self, row):
         bill_number = self.table.item(row, 0).text()
-        invoice = self.db_manager.get_invoice_by_bill_number(bill_number)
         
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Invoice Details - {bill_number}")
-        layout = QVBoxLayout()
-        
-        text = QTextEdit()
-        text.setReadOnly(True)
-        text.append(f"Bill Number: {invoice['bill_number']}")
-        text.append(f"Date: {invoice['bill_date']}\n")
-        text.append("Bill To:")
-        text.append(f"{invoice['bill_to_name']}\n{invoice['bill_to_address']}\nGST: {invoice['bill_to_gst']}\n")
-        text.append("\nItems:")
-        text.append("{:<5} {:<15} {:<30} {:<10} {:<10} {:<10}".format(
-            "SNo", "SKU", "Product", "Qty", "Price", "Amount"))
-        for idx, item in enumerate(invoice['items'], 1):
-            text.append("{:<5} {:<15} {:<30} {:<10} {:<10.2f} {:<10.2f}".format(
-                idx, item['sku_code'], item['product_name'], 
-                item['quantity'], item['price_per_unit'], item['amount']))
-        
-        layout.addWidget(text)
-        dialog.setLayout(layout)
-        dialog.exec_()
+        # Show loading screen
+        loading = LoadingScreen("Loading Invoice Details...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            invoice = self.db_manager.get_invoice_by_bill_number(bill_number)
+            
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"Invoice Details - {bill_number}")
+            dialog.setMinimumWidth(600)
+            layout = QVBoxLayout()
+            
+            text = QTextEdit()
+            text.setReadOnly(True)
+            text.append(f"<h3>Invoice {invoice['bill_number']}</h3>")
+            text.append(f"<b>Date:</b> {invoice['bill_date']}\n")
+            text.append("<h4>Bill To:</h4>")
+            text.append(f"{invoice['bill_to_name']}\n{invoice['bill_to_address']}\nGST: {invoice['bill_to_gst']}\n")
+            text.append("<h4>Items:</h4>")
+            text.append("<table border='1' cellspacing='0' cellpadding='5' width='100%'>")
+            text.append("<tr><th>SNo</th><th>SKU</th><th>Product</th><th>Qty</th><th>Price</th><th>Amount</th></tr>")
+            
+            for idx, item in enumerate(invoice['items'], 1):
+                text.append(f"<tr><td>{idx}</td><td>{item['sku_code']}</td><td>{item['product_name']}</td>" \
+                          f"<td>{item['quantity']}</td><td>{item['price_per_unit']:.2f}</td>" \
+                          f"<td>{item['amount']:.2f}</td></tr>")
+            
+            text.append("</table>\n")
+            text.append(f"<b>Total Amount:</b> {invoice['total_amount']:.2f}")
+            text.append(f"<b>Advance Amount:</b> {invoice['advance_amount']:.2f}")
+            
+            layout.addWidget(text)
+            
+            # Add close button
+            buttons = QDialogButtonBox(QDialogButtonBox.Close)
+            buttons.rejected.connect(dialog.reject)
+            layout.addWidget(buttons)
+            
+            dialog.setLayout(layout)
+            dialog.exec_()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load invoice details: {str(e)}")
+        finally:
+            loading.close()
 
 class ManageClientsTab(QWidget):
     def __init__(self, db_manager, parent=None):
@@ -1276,15 +1537,25 @@ class ManageClientsTab(QWidget):
         self.setLayout(layout)
 
     def load_clients(self):
-        self.table.setRowCount(0)
-        clients = self.db_manager.get_all_companies()
-        for client in clients:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            self.table.setItem(row, 0, QTableWidgetItem(str(client['id'])))
-            self.table.setItem(row, 1, QTableWidgetItem(client['company_name']))
-            self.table.setItem(row, 2, QTableWidgetItem(client['address']))
-            self.table.setItem(row, 3, QTableWidgetItem(client['gst_number']))
+        # Show loading screen
+        loading = LoadingScreen("Loading Clients...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            self.table.setRowCount(0)
+            clients = self.db_manager.get_all_companies()
+            for client in clients:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                self.table.setItem(row, 0, QTableWidgetItem(str(client['id'])))
+                self.table.setItem(row, 1, QTableWidgetItem(client['company_name']))
+                self.table.setItem(row, 2, QTableWidgetItem(client['address']))
+                self.table.setItem(row, 3, QTableWidgetItem(client['gst_number']))
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load clients: {str(e)}")
+        finally:
+            loading.close()
 
     def add_client(self):
         dialog = QDialog(self)
@@ -1312,21 +1583,47 @@ class ManageClientsTab(QWidget):
             QMessageBox.warning(self, "Error", "All fields are required")
             return
         
-        company_id, error = self.db_manager.add_company(name, address, gst)
-        if error:
-            QMessageBox.critical(self, "Error", error)
-        else:
-            self.load_clients()
-            dialog.close()
+        # Show loading screen
+        loading = LoadingScreen("Adding Client...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            company_id, error = self.db_manager.add_company(name, address, gst)
+            if error:
+                QMessageBox.critical(self, "Error", error)
+            else:
+                self.load_clients()
+                QMessageBox.information(self, "Success", "Client added successfully!")
+                dialog.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to add client: {str(e)}")
+        finally:
+            loading.close()
 
     def edit_client(self):
         selected = self.table.currentRow()
         if selected == -1:
-            QMessageBox.warning(self, "Error", "Please select a client")
+            QMessageBox.warning(self, "Error", "Please select a client to edit")
             return
         
         client_id = int(self.table.item(selected, 0).text())
-        client = self.db_manager.get_company_by_id(client_id)
+        
+        # Show loading screen
+        loading = LoadingScreen("Loading Client Details...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            client = self.db_manager.get_company_by_id(client_id)
+            if not client:
+                QMessageBox.critical(self, "Error", "Client not found")
+                return
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load client details: {str(e)}")
+            return
+        finally:
+            loading.close()
         
         dialog = QDialog(self)
         dialog.setWindowTitle("Edit Client")
@@ -1334,7 +1631,9 @@ class ManageClientsTab(QWidget):
         
         name = QLineEdit(client['company_name'])
         gst = QLineEdit(client['gst_number'])
-        address = QTextEdit(client['address'])
+        address = QTextEdit()
+        address.setText(client['address'])
+        address.setMaximumHeight(100)
         
         layout.addRow("Company Name:", name)
         layout.addRow("GST Number:", gst)
@@ -1350,29 +1649,63 @@ class ManageClientsTab(QWidget):
         dialog.exec_()
 
     def update_client(self, dialog, client_id, name, gst, address):
-        success, error = self.db_manager.update_company(client_id, name, address, gst)
-        if error:
-            QMessageBox.critical(self, "Error", error)
-        else:
-            self.load_clients()
-            dialog.close()
-
-    def delete_client(self):
-        selected = self.table.currentRow()
-        if selected == -1:
-            QMessageBox.warning(self, "Error", "Please select a client")
+        if not all([name, gst, address]):
+            QMessageBox.warning(self, "Error", "All fields are required")
             return
         
-        client_id = int(self.table.item(selected, 0).text())
-        confirm = QMessageBox.question(
-            self, "Confirm Delete", "Delete this client?", QMessageBox.Yes | QMessageBox.No)
-        
-        if confirm == QMessageBox.Yes:
-            success, error = self.db_manager.delete_company(client_id)
+        # Show loading screen
+        loading = LoadingScreen("Updating Client...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            success, error = self.db_manager.update_company(client_id, name, address, gst)
             if error:
                 QMessageBox.critical(self, "Error", error)
             else:
                 self.load_clients()
+                QMessageBox.information(self, "Success", "Client updated successfully!")
+                dialog.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to update client: {str(e)}")
+        finally:
+            loading.close()
+
+    def delete_client(self):
+        selected = self.table.currentRow()
+        if selected == -1:
+            QMessageBox.warning(self, "Error", "Please select a client to delete")
+            return
+        
+        client_id = int(self.table.item(selected, 0).text())
+        client_name = self.table.item(selected, 1).text()
+        
+        # Show confirmation dialog with client name
+        confirm = QMessageBox.question(
+            self, 
+            "Confirm Delete", 
+            f"Are you sure you want to delete client '{client_name}'?\nThis action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if confirm == QMessageBox.Yes:
+            # Show loading screen
+            loading = LoadingScreen("Deleting Client...", self)
+            loading.show()
+            QApplication.processEvents()
+
+            try:
+                success, error = self.db_manager.delete_company(client_id)
+                if error:
+                    QMessageBox.critical(self, "Error", error)
+                else:
+                    self.load_clients()
+                    QMessageBox.information(self, "Success", "Client deleted successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete client: {str(e)}")
+            finally:
+                loading.close()
 
 class ManageProductsTab(QWidget):
     def __init__(self, db_manager, parent=None):
@@ -1407,16 +1740,26 @@ class ManageProductsTab(QWidget):
         self.setLayout(layout)
 
     def load_products(self):
-        self.table.setRowCount(0)
-        products = self.db_manager.get_all_products()
-        for product in products:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            self.table.setItem(row, 0, QTableWidgetItem(str(product['id'])))
-            self.table.setItem(row, 1, QTableWidgetItem(product['sku_code']))
-            self.table.setItem(row, 2, QTableWidgetItem(product['product_name']))
-            self.table.setItem(row, 3, QTableWidgetItem(product['hsn_code']))
-            self.table.setItem(row, 4, QTableWidgetItem(f"{product['price_per_unit']:.2f}"))
+        # Show loading screen
+        loading = LoadingScreen("Loading Products...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            self.table.setRowCount(0)
+            products = self.db_manager.get_all_products()
+            for product in products:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                self.table.setItem(row, 0, QTableWidgetItem(str(product['id'])))
+                self.table.setItem(row, 1, QTableWidgetItem(product['sku_code']))
+                self.table.setItem(row, 2, QTableWidgetItem(product['product_name']))
+                self.table.setItem(row, 3, QTableWidgetItem(product['hsn_code']))
+                self.table.setItem(row, 4, QTableWidgetItem(f"{product['price_per_unit']:.2f}"))
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load products: {str(e)}")
+        finally:
+            loading.close()
 
     def add_product(self):
         dialog = QDialog(self)
@@ -1447,21 +1790,47 @@ class ManageProductsTab(QWidget):
             QMessageBox.warning(self, "Error", "All fields are required and price must be positive")
             return
         
-        product_id, error = self.db_manager.add_product(sku, name, hsn, price)
-        if error:
-            QMessageBox.critical(self, "Error", error)
-        else:
-            self.load_products()
-            dialog.close()
+        # Show loading screen
+        loading = LoadingScreen("Saving Product...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            product_id, error = self.db_manager.add_product(sku, name, hsn, price)
+            if error:
+                QMessageBox.critical(self, "Error", error)
+            else:
+                self.load_products()
+                QMessageBox.information(self, "Success", "Product added successfully!")
+                dialog.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save product: {str(e)}")
+        finally:
+            loading.close()
 
     def edit_product(self):
         selected = self.table.currentRow()
         if selected == -1:
-            QMessageBox.warning(self, "Error", "Please select a product")
+            QMessageBox.warning(self, "Error", "Please select a product to edit")
             return
         
         product_id = int(self.table.item(selected, 0).text())
-        product = self.db_manager.get_product_by_id(product_id)
+        
+        # Show loading screen
+        loading = LoadingScreen("Loading Product Details...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            product = self.db_manager.get_product_by_id(product_id)
+            if not product:
+                QMessageBox.critical(self, "Error", "Product not found")
+                return
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load product details: {str(e)}")
+            return
+        finally:
+            loading.close()
         
         dialog = QDialog(self)
         dialog.setWindowTitle("Edit Product")
@@ -1472,6 +1841,7 @@ class ManageProductsTab(QWidget):
         hsn = QLineEdit(product['hsn_code'])
         price = QDoubleSpinBox()
         price.setValue(product['price_per_unit'])
+        price.setMaximum(999999.99)
         
         layout.addRow("SKU Code:", sku)
         layout.addRow("Product Name:", name)
@@ -1488,29 +1858,63 @@ class ManageProductsTab(QWidget):
         dialog.exec_()
 
     def update_product(self, dialog, product_id, sku, name, hsn, price):
-        success, error = self.db_manager.update_product(product_id, sku, name, hsn, price)
-        if error:
-            QMessageBox.critical(self, "Error", error)
-        else:
-            self.load_products()
-            dialog.close()
-
-    def delete_product(self):
-        selected = self.table.currentRow()
-        if selected == -1:
-            QMessageBox.warning(self, "Error", "Please select a product")
+        if not all([sku, name, hsn]) or price <= 0:
+            QMessageBox.warning(self, "Error", "All fields are required and price must be positive")
             return
         
-        product_id = int(self.table.item(selected, 0).text())
-        confirm = QMessageBox.question(
-            self, "Confirm Delete", "Delete this product?", QMessageBox.Yes | QMessageBox.No)
-        
-        if confirm == QMessageBox.Yes:
-            success, error = self.db_manager.delete_product(product_id)
+        # Show loading screen
+        loading = LoadingScreen("Updating Product...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            success, error = self.db_manager.update_product(product_id, sku, name, hsn, price)
             if error:
                 QMessageBox.critical(self, "Error", error)
             else:
                 self.load_products()
+                QMessageBox.information(self, "Success", "Product updated successfully!")
+                dialog.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to update product: {str(e)}")
+        finally:
+            loading.close()
+
+    def delete_product(self):
+        selected = self.table.currentRow()
+        if selected == -1:
+            QMessageBox.warning(self, "Error", "Please select a product to delete")
+            return
+        
+        product_id = int(self.table.item(selected, 0).text())
+        product_name = self.table.item(selected, 2).text()
+        
+        # Show confirmation dialog
+        confirm = QMessageBox.question(
+            self, 
+            "Confirm Delete", 
+            f"Are you sure you want to delete product '{product_name}'?\nThis action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if confirm == QMessageBox.Yes:
+            # Show loading screen
+            loading = LoadingScreen("Deleting Product...", self)
+            loading.show()
+            QApplication.processEvents()
+
+            try:
+                success, error = self.db_manager.delete_product(product_id)
+                if error:
+                    QMessageBox.critical(self, "Error", error)
+                else:
+                    self.load_products()
+                    QMessageBox.information(self, "Success", "Product deleted successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete product: {str(e)}")
+            finally:
+                loading.close()
 
 class MainWindow(QMainWindow):
     def __init__(self):
