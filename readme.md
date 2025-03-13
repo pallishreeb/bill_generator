@@ -13,7 +13,7 @@ Create a .dmg File on macOS (Create an App Bundle (macOS Only))
 pyinstaller --windowed --onefile --name=BillGenerator --icon=your_icon.icns main.py
 
 
- Use create-dmg to Build .dmg File
+Use create-dmg to Build .dmg File
 create-dmg dist/BillGenerator.app
 
 

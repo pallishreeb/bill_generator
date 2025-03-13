@@ -3,6 +3,7 @@ import os
 import sqlite3
 import datetime
 from datetime import date
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, 
                              QHBoxLayout, QFormLayout, QLineEdit, QLabel, QPushButton, 
                              QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
@@ -18,7 +19,12 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import Image
 from fpdf import FPDF
+from num2words import num2words
 
+
+def amount_to_words(amount):
+    """Convert numeric amount to words dynamically."""
+    return num2words(amount, to='currency', lang='en_IN').replace("euro", "rupees").replace("cents", "paise")
 
 def get_dynamic_invoice_data(bill_to, ship_to, ship_from, bill_no, bill_date, items, taxable_value, sgst_rate, sgst_amount, cgst_rate, cgst_amount, total, amount_in_words, signature_path):
     return {
@@ -62,7 +68,8 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="TableHeader", alignment=1, fontSize=10, textColor=colors.white))
     styles.add(ParagraphStyle(name="NormalBold", fontName='Helvetica-Bold'))
-
+    # Define a new style for large bold text
+    styles.add(ParagraphStyle(name="TaxInvoiceStyle", fontSize=14, fontName="Helvetica-Bold", alignment=1))
     elements = []
 
     # ----------------------------
@@ -149,11 +156,11 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
     # (C) ITEMS TABLE with Updated Dynamic Fields
     # ----------------------------
     items_data = [[
-        Paragraph("<b>Serial No.</b>", styles["Normal"]),
-        Paragraph("<b>SKU Code</b>", styles["Normal"]),
-        Paragraph("<b>Product Name</b>", styles["Normal"]),
-        Paragraph("<b>HSN Code</b>", styles["Normal"]),
-        Paragraph("<b>Quantity</b>", styles["Normal"]),
+        Paragraph("<b>Sl No.</b>", styles["Normal"]),
+        Paragraph("<b>SKU</b>", styles["Normal"]),
+        Paragraph("<b>Product</b>", styles["Normal"]),
+        Paragraph("<b>HSN</b>", styles["Normal"]),
+        Paragraph("<b>Qty</b>", styles["Normal"]),
         Paragraph("<b>Price per Unit</b>", styles["Normal"]),
         Paragraph("<b>Amount</b>", styles["Normal"]),
     ]]
@@ -212,13 +219,18 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
     elements.append(Spacer(1, 10))
 
      # Amount in words
+     # Convert total amount to words dynamically
+    data["amount_in_words"] = amount_to_words(data["total"])
+
     elements.append(Paragraph(f"<b>Amount in Words:</b> {data['amount_in_words']}", styles["Normal"]))
-    elements.append(Paragraph(f"", styles["Normal"]))  # Empty cell for alignment
+    elements.append(Spacer(1, 10))  # 🔄 Added spacing
+
     # ----------------------------
     # (E) FOOTER with Borders
     # ----------------------------
     signature_path = data.get("signature_path")
-    signature_img = Image(signature_path, width=120, height=40) if signature_path else ""
+    signature_img = Image(signature_path, width=120, height=40)
+    # signature_img = Image(signature_path, width=120, height=40) if signature_path else ""
 
     footer_data = [
         [
@@ -242,6 +254,14 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
     doc.build(elements)
     return filename
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # If PyInstaller used
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 class DatabaseManager:
     def __init__(self, db_file="invoice_app.db"):
@@ -922,7 +942,7 @@ class GenerateBillTab(QWidget):
 
         # Create QLabel to show the PDF save path
         self.pdf_path_label = QLabel("", self)
-        self.pdf_path_label.setStyleSheet("color: green; font-size: 10pt;")
+        self.pdf_path_label.setStyleSheet("color: green; font-size: 12pt;")
         self.pdf_path_label.setGeometry(10, self.height() - 30, self.width() - 20, 20)
         self.pdf_path_label.setAlignment(Qt.AlignLeft)
         main_layout.addWidget(self.pdf_path_label)
