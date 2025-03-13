@@ -565,15 +565,46 @@ class DatabaseManager:
         conn = self.get_connection()
         cursor = conn.cursor()
         
-        cursor.execute('SELECT COUNT(*) FROM invoices')
-        count = cursor.fetchone()[0]
-        
-        # Format: INV-YYYYMMDD-XXXX
-        today = datetime.datetime.now().strftime('%Y%m%d')
-        bill_number = f"INV-{today}-{count+1:04d}"
-        
-        conn.close()
-        return bill_number
+        try:
+            # Get the current date
+            today = datetime.datetime.now().strftime('%Y%m%d')
+            
+            # Get the last bill number for today
+            cursor.execute('''
+            SELECT bill_number 
+            FROM invoices 
+            WHERE bill_number LIKE ? 
+            ORDER BY bill_number DESC 
+            LIMIT 1
+            ''', (f"INV-{today}-%",))
+            
+            result = cursor.fetchone()
+            
+            if result:
+                # Extract the sequence number from the last bill number
+                last_sequence = int(result['bill_number'].split('-')[-1])
+                next_sequence = last_sequence + 1
+            else:
+                # If no bills for today, start with 1
+                next_sequence = 1
+            
+            # Format: INV-YYYYMMDD-XXXX
+            bill_number = f"INV-{today}-{next_sequence:04d}"
+            
+            # Double-check if this number exists (race condition check)
+            cursor.execute('SELECT COUNT(*) FROM invoices WHERE bill_number = ?', (bill_number,))
+            if cursor.fetchone()[0] > 0:
+                # If exists, try the next number
+                bill_number = f"INV-{today}-{(next_sequence + 1):04d}"
+            
+            return bill_number
+            
+        except Exception as e:
+            # If any error occurs, return a timestamp-based number
+            timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+            return f"INV-{timestamp}"
+        finally:
+            conn.close()
     
     def create_invoice(self, bill_date, bill_to_company_id, ship_to_company_id, 
                       ship_from_company_id, signature_path, advance_amount, total_amount, items):

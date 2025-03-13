@@ -24,7 +24,7 @@ A cross-platform desktop application for generating and managing invoices with G
 
 1. Clone the repository (or download the source code):
 ```bash
-git clone https://github.com/yourusername/bill-generator.git
+git clone https://github.com/pallishreeb/bill_generator
 cd bill-generator
 ```
 
@@ -228,19 +228,4 @@ If you encounter any issues:
 3. Ensure all dependencies are installed correctly
 4. Check if you have the latest version of the application
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For support, please open an issue in the GitHub repository or contact the maintainers.
 
