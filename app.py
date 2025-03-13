@@ -66,10 +66,30 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
     )
 
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="TableHeader", alignment=1, fontSize=10, textColor=colors.white))
-    styles.add(ParagraphStyle(name="NormalBold", fontName='Helvetica-Bold'))
-    # Define a new style for large bold text
-    styles.add(ParagraphStyle(name="TaxInvoiceStyle", fontSize=14, fontName="Helvetica-Bold", alignment=1))
+    # Define custom styles
+    styles.add(ParagraphStyle(
+        name="TableHeader",
+        fontSize=8,
+        textColor=colors.white,
+        alignment=1,  # Center alignment
+        fontName='Helvetica-Bold'
+    ))
+    styles.add(ParagraphStyle(
+        name="NormalBold",
+        fontName='Helvetica-Bold',
+        fontSize=10
+    ))
+    styles.add(ParagraphStyle(
+        name="TaxInvoiceStyle",
+        fontSize=14,
+        fontName="Helvetica-Bold",
+        alignment=1
+    ))
+    styles.add(ParagraphStyle(
+        name="TableContent",
+        fontSize=9,
+        alignment=1  # Center alignment
+    ))
     elements = []
 
     # ----------------------------
@@ -78,7 +98,7 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
     header_data = [
         [
             Paragraph(f"GSTIN: <b>{data['company_gstin']}</b>", styles["Normal"]),
-            Paragraph("<b>TAX INVOICE</b>", styles["NormalBold"]),
+            Paragraph("<b>TAX INVOICE</b>", styles["TaxInvoiceStyle"]),
             Paragraph(f"<b>Bill No:</b> {data['bill_no']}<br/><b>Date:</b> {data['bill_date']}", styles["Normal"]),
         ]
     ]
@@ -86,57 +106,58 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
     header_table.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 1, colors.black),
         ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("BACKGROUND", (1, 0), (1, 0), colors.grey),  # Grey background for TAX INVOICE
+        ("TEXTCOLOR", (1, 0), (1, 0), colors.white),  # White text for TAX INVOICE
+        ("TOPPADDING", (0, 0), (-1, -1), 8),  # Add top padding
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),  # Add bottom padding
     ]))
     elements.append(header_table)
     elements.append(Spacer(1, 10))
 
-
     # ----------------------------
-    # (A) COMPANY INFO SECTION at the Top with Borders
+    # (B) COMPANY INFO SECTION at the Top with Borders
     # ----------------------------
     company_info_data = [
         [
             Paragraph(f"<b>{data['company_name']}</b>", ParagraphStyle(
                 'CompanyName',
-                fontSize=16,  # 🔄 Larger font size for company name
-                alignment=1,   # Center align
-                spaceAfter=6   # Space below the name
+                fontSize=16,
+                alignment=1,
+                spaceAfter=6
             ))
         ],
         [
             Paragraph(data['office_address'], ParagraphStyle(
                 'OfficeAddress',
-                fontSize=12,   # Standard font size for address
-                alignment=1,   # Center align
-                spaceAfter=4   # Space below the address
+                fontSize=11,
+                alignment=1,
+                spaceAfter=4
             ))
         ],
         [
             Paragraph(data['contact_info'], ParagraphStyle(
                 'ContactInfo',
-                fontSize=12,   # Standard font size for contact info
-                alignment=1,   # Center align
+                fontSize=11,
+                alignment=1,
             ))
         ]
     ]
 
     company_info_table = Table(company_info_data, colWidths=[540])
     company_info_table.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 1, colors.black),          # Outer border
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),                 # Padding for neatness
+        ("BOX", (0, 0), (-1, -1), 1, colors.black),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.lightgrey),  # Light grey background
     ]))
 
     elements.append(company_info_table)
     elements.append(Spacer(1, 10))
 
-
-
-
     # ----------------------------
-    # (B) BILL TO / SHIP FROM / SHIP TO with Borders
+    # (C) BILL TO / SHIP FROM / SHIP TO with Borders
     # ----------------------------
     addresses_data = [
         [
@@ -149,38 +170,44 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
     addresses_table.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 1, colors.black),
         ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),  # Light grey background for headers
     ]))
     elements.append(addresses_table)
     elements.append(Spacer(1, 10))
+
     # ----------------------------
-    # (C) ITEMS TABLE with Updated Dynamic Fields
+    # (D) ITEMS TABLE with Updated Dynamic Fields
     # ----------------------------
     items_data = [[
-        Paragraph("<b>Sl No.</b>", styles["Normal"]),
-        Paragraph("<b>SKU</b>", styles["Normal"]),
-        Paragraph("<b>Product</b>", styles["Normal"]),
-        Paragraph("<b>HSN</b>", styles["Normal"]),
-        Paragraph("<b>Qty</b>", styles["Normal"]),
-        Paragraph("<b>Price per Unit</b>", styles["Normal"]),
-        Paragraph("<b>Amount</b>", styles["Normal"]),
+        Paragraph("<b>Sl No.</b>", styles["TableHeader"]),
+        Paragraph("<b>SKU</b>", styles["TableHeader"]),
+        Paragraph("<b>Product</b>", styles["TableHeader"]),
+        Paragraph("<b>HSN</b>", styles["TableHeader"]),
+        Paragraph("<b>Qty</b>", styles["TableHeader"]),
+        Paragraph("<b>Price per Unit</b>", styles["TableHeader"]),
+        Paragraph("<b>Amount</b>", styles["TableHeader"]),
     ]]
-
 
     if data["items"]:
         for idx, item in enumerate(data["items"], 1):
-            print("items data",item)
             items_data.append([
-                str(idx),                               # Serial No.
-                item.get("sku_code", "N/A"),            # SKU Code
-                item.get("product_name", "N/A"),        # Product Name
-                item.get("hsn_code", "N/A"),            # HSN Code
-                str(item.get("quantity", 0)),           # Quantity
-                f"{item.get('price_per_unit', 0):.2f}", # Price per Unit
-                f"{item.get('amount', 0):.2f}"          # Amount
+                Paragraph(str(idx), styles["TableContent"]),
+                Paragraph(item.get("sku_code", "N/A"), styles["TableContent"]),
+                Paragraph(item.get("product_name", "N/A"), styles["TableContent"]),
+                Paragraph(item.get("hsn_code", "N/A"), styles["TableContent"]),
+                Paragraph(str(item.get("quantity", 0)), styles["TableContent"]),
+                Paragraph(f"{item.get('price_per_unit', 0):.2f}", styles["TableContent"]),
+                Paragraph(f"{item.get('amount', 0):.2f}", styles["TableContent"]),
             ])
     else:
         items_data.append([
-            "", "No products available", "", "", "", "", ""
+            Paragraph("", styles["TableContent"]),
+            Paragraph("No products available", styles["TableContent"]),
+            Paragraph("", styles["TableContent"]),
+            Paragraph("", styles["TableContent"]),
+            Paragraph("", styles["TableContent"]),
+            Paragraph("", styles["TableContent"]),
+            Paragraph("", styles["TableContent"]),
         ])
 
     items_table = Table(items_data, colWidths=[40, 80, 150, 80, 50, 70, 80])
@@ -194,13 +221,14 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
     ]))
     elements.append(items_table)
     elements.append(Spacer(1, 10))
 
-
     # ----------------------------
-    # (D) TAX DETAILS & TOTALS with Borders
+    # (E) TAX DETAILS & TOTALS with Borders
     # ----------------------------
     totals_data = [
         ["Taxable Value", f"{data['taxable_value']:.2f}"],
@@ -212,25 +240,28 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
     totals_table.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 1, colors.black),
         ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("BACKGROUND", (-1, -1), (-1, -1), colors.lightgrey),  # Light grey background for total
+        ("FONTNAME", (-1, -1), (-1, -1), "Helvetica-Bold"),  # Bold for total
+        ("ALIGN", (0, 0), (-1, -1), "RIGHT"),  # Right align all cells
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
 
     elements.append(Spacer(1, 10))
     elements.append(totals_table)
     elements.append(Spacer(1, 10))
 
-     # Amount in words
-     # Convert total amount to words dynamically
-    data["amount_in_words"] = amount_to_words(data["total"])
-
+    # Amount in words
     elements.append(Paragraph(f"<b>Amount in Words:</b> {data['amount_in_words']}", styles["Normal"]))
-    elements.append(Spacer(1, 10))  # 🔄 Added spacing
+    elements.append(Spacer(1, 10))
 
     # ----------------------------
-    # (E) FOOTER with Borders
+    # (F) FOOTER with Borders
     # ----------------------------
     signature_path = data.get("signature_path")
     signature_img = Image(signature_path, width=120, height=40)
-    # signature_img = Image(signature_path, width=120, height=40) if signature_path else ""
 
     footer_data = [
         [
@@ -238,8 +269,8 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
             signature_img
         ],
         [
-            Paragraph(f"{data['footer_note']}", styles["Normal"]),  # Empty cell for alignment
-            Paragraph(f"<br/><b>{data['footer_signature_label']}</b>", styles["Normal"]),  # Signature label
+            Paragraph(f"{data['footer_note']}", styles["Normal"]),
+            Paragraph(f"<br/><b>{data['footer_signature_label']}</b>", styles["Normal"]),
         ]
     ]
 
@@ -247,6 +278,11 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
     footer_table.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 1, colors.black),
         ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.lightgrey),  # Light grey background
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     elements.append(footer_table)
 
@@ -754,11 +790,11 @@ class InvoiceItem(QFrame):
         self.price_per_unit.setDecimals(2)
         layout.addWidget(self.price_per_unit, 0, 5)
         
-        # Amount (read-only)
+        # Amount (editable)
         self.amount = QDoubleSpinBox()
-        self.amount.setReadOnly(True)
         self.amount.setMaximum(9999999.99)
         self.amount.setDecimals(2)
+        self.amount.valueChanged.connect(self.update_price_per_unit)
         layout.addWidget(self.amount, 0, 6)
         
         # Remove button
@@ -780,7 +816,8 @@ class InvoiceItem(QFrame):
                     self.product_name.setText(product['product_name'])
                     self.hsn_code.setText(product['hsn_code'])
                     self.price_per_unit.setValue(product['price_per_unit'])
-                    self.calculate_amount()
+                    # Set initial amount based on quantity and price
+                    self.amount.setValue(self.quantity.value() * product['price_per_unit'])
                     break
         else:
             self.product_id = None
@@ -805,6 +842,18 @@ class InvoiceItem(QFrame):
             parent = parent.parent()
         if parent:
             parent.calculate_total()
+    
+    def update_price_per_unit(self):
+        qty = self.quantity.value()
+        if qty > 0:
+            new_price = self.amount.value() / qty
+            self.price_per_unit.setValue(new_price)
+            # Find the parent GenerateBillTab and update total
+            parent = self.parent()
+            while parent and not isinstance(parent, GenerateBillTab):
+                parent = parent.parent()
+            if parent:
+                parent.calculate_total()
     
     def remove_item(self):
         # Find the parent GenerateBillTab
@@ -999,6 +1048,13 @@ class GenerateBillTab(QWidget):
         self.print_btn.setFont(QFont("Arial", 12))
         self.print_btn.clicked.connect(self.print_bill)
         button_layout.addWidget(self.print_btn)
+        
+        # Refresh Button
+        self.refresh_btn = QPushButton("Refresh Data")
+        self.refresh_btn.setFixedHeight(40)
+        self.refresh_btn.setFont(QFont("Arial", 12))
+        self.refresh_btn.clicked.connect(self.refresh_data)
+        button_layout.addWidget(self.refresh_btn)
         
         main_layout.addLayout(button_layout)
 
@@ -1314,6 +1370,30 @@ class GenerateBillTab(QWidget):
         self.advance_amount.setValue(0.0)
         self.total_amount.setValue(0.0)
 
+    def refresh_data(self):
+        # Show loading screen
+        loading = LoadingScreen("Refreshing Data...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            # Reload products
+            self.load_products()
+            
+            # Clear existing product items
+            for item in self.product_items:
+                item.deleteLater()
+            self.product_items.clear()
+            
+            # Add a new empty product item
+            self.add_product_item()
+            
+            QMessageBox.information(self, "Success", "Data refreshed successfully!")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to refresh data: {str(e)}")
+        finally:
+            loading.close()
+
 # Add remaining tabs
 class DisplayBillsTab(QWidget):
     def __init__(self, db_manager, parent=None):
@@ -1332,6 +1412,11 @@ class DisplayBillsTab(QWidget):
         edit_btn = QPushButton("Edit Invoice")
         edit_btn.clicked.connect(self.edit_invoice)
         btn_layout.addWidget(edit_btn)
+        
+        # Delete button
+        delete_btn = QPushButton("Delete Invoice")
+        delete_btn.clicked.connect(self.delete_invoice)
+        btn_layout.addWidget(delete_btn)
         
         # Add some spacing
         btn_layout.addStretch()
@@ -1503,6 +1588,53 @@ class DisplayBillsTab(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to load invoice details: {str(e)}")
         finally:
             loading.close()
+
+    def delete_invoice(self):
+        selected = self.table.currentRow()
+        if selected == -1:
+            QMessageBox.warning(self, "Error", "Please select an invoice to delete")
+            return
+        
+        bill_number = self.table.item(selected, 0).text()
+        bill_to = self.table.item(selected, 2).text()
+        
+        # Show confirmation dialog
+        confirm = QMessageBox.question(
+            self, 
+            "Confirm Delete", 
+            f"Are you sure you want to delete invoice '{bill_number}' for '{bill_to}'?\nThis action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if confirm == QMessageBox.Yes:
+            # Show loading screen
+            loading = LoadingScreen("Deleting Invoice...", self)
+            loading.show()
+            QApplication.processEvents()
+
+            try:
+                # Get invoice ID
+                invoice = self.db_manager.get_invoice_by_bill_number(bill_number)
+                if not invoice:
+                    raise ValueError("Invoice not found")
+                
+                # Delete invoice items first
+                conn = self.db_manager.get_connection()
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM invoice_items WHERE invoice_id = ?', (invoice['id'],))
+                
+                # Delete invoice
+                cursor.execute('DELETE FROM invoices WHERE id = ?', (invoice['id'],))
+                conn.commit()
+                conn.close()
+                
+                self.load_invoices()
+                QMessageBox.information(self, "Success", "Invoice deleted successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to delete invoice: {str(e)}")
+            finally:
+                loading.close()
 
 class ManageClientsTab(QWidget):
     def __init__(self, db_manager, parent=None):
