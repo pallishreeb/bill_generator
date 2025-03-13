@@ -19,12 +19,13 @@ A cross-platform desktop application for generating and managing invoices with G
 - Python 3.7 or higher
 - pip (Python package installer)
 - Git (optional, for cloning the repository)
+- Pillow (for icon generation)
 
 ## Installation
 
 1. Clone the repository (or download the source code):
 ```bash
-git clone https://github.com/pallishreeb/bill_generator
+git clone https://github.com/yourusername/bill-generator.git
 cd bill-generator
 ```
 
@@ -37,6 +38,11 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 3. Install required packages:
 ```bash
 pip install -r requirements.txt
+```
+
+4. Generate application icons:
+```bash
+python generate_icon.py
 ```
 
 ## Managing Dependencies
@@ -79,6 +85,7 @@ The project uses the following main packages:
 - `pandas`: For data manipulation and Excel export
 - `openpyxl`: For Excel file handling
 - `pyinstaller`: For creating executable files
+- `Pillow`: For image processing and icon generation
 
 ## Running the Application
 
@@ -132,26 +139,147 @@ The application uses SQLite database with the following tables:
 
 ## Building the Application
 
-### Using PyInstaller
+### Prerequisites for Building
 
-1. Install PyInstaller:
+Before building the application, ensure you have:
+1. Python 3.7 or higher installed
+2. Virtual environment activated
+3. All dependencies installed via `pip install -r requirements.txt`
+4. Generated application icons using `python generate_icon.py`
+
+### Building on macOS
+
+1. Clean any previous builds:
 ```bash
-pip install pyinstaller
+rm -rf build dist app.spec
 ```
 
-2. Build the application:
+2. Generate the macOS application bundle (.app):
 ```bash
-pyinstaller --onefile --windowed --icon=app.ico app.py
+pyinstaller --onefile --windowed --icon=icons/app.ico --add-data="icons/app.ico:." app.py
 ```
 
-The executable will be created in the `dist` directory.
+3. The build process will create:
+   - `dist/app` - Command line executable
+   - `dist/app.app` - macOS application bundle (use this)
 
-### Build Options
+4. Running the application:
+   - Double-click `app.app` in Finder
+   - Or run from terminal: `open dist/app.app`
 
-- `--onefile`: Create a single executable file
-- `--windowed`: Run without console window
-- `--icon=app.ico`: Add application icon
-- `--add-data`: Include additional resources
+5. Optional: Create a DMG for distribution:
+   - Rename `app.app` to "Invoice Manager.app"
+   - Create a new folder called "Invoice Manager"
+   - Copy the .app file into this folder
+   - Use Disk Utility to create a DMG
+
+### Building on Windows
+
+1. Clean any previous builds:
+```cmd
+rmdir /s /q build dist
+del app.spec
+```
+
+2. Generate the Windows executable (.exe):
+```cmd
+pyinstaller --onefile --noconsole --icon=icons/app.ico --add-data="icons/app.ico;." app.py
+```
+
+3. The build process will create:
+   - `dist/app.exe` - Windows executable
+
+4. Running the application:
+   - Double-click `app.exe` in File Explorer
+   - Or run from command prompt: `dist\app.exe`
+
+5. Optional: Create an installer:
+   - Use NSIS or Inno Setup to create an installer
+   - Include any necessary dependencies
+   - Add Start Menu shortcuts
+
+### Build Options Explained
+
+Common options for both platforms:
+- `--onefile`: Creates a single executable file
+- `--icon=icons/app.ico`: Sets the application icon
+
+Platform-specific options:
+- macOS:
+  - `--windowed`: Prevents terminal window from appearing
+  - `--add-data="icons/app.ico:."`: Includes resources (uses colon separator)
+
+- Windows:
+  - `--noconsole`: Prevents command prompt from appearing
+  - `--add-data="icons/app.ico;."`: Includes resources (uses semicolon separator)
+
+### Troubleshooting Build Issues
+
+#### macOS Build Issues
+
+1. **Architecture Issues**
+   - M1/M2 Macs: Use native ARM64 Python
+   - Intel Macs: Use x86_64 Python
+   - Check architecture: `python -c "import platform; print(platform.machine())"`
+
+2. **Icon Issues**
+   - Ensure icon file exists
+   - Try regenerating icons: `python generate_icon.py`
+   - Check file permissions
+
+3. **Missing Libraries**
+   - Verify all dependencies are installed
+   - Check virtual environment is activated
+   - Try reinstalling packages: `pip install -r requirements.txt`
+
+#### Windows Build Issues
+
+1. **DLL Issues**
+   - Install Visual C++ Redistributable
+   - Ensure PyQt5 is properly installed
+   - Try reinstalling packages
+
+2. **Icon Not Showing**
+   - Verify icon path is correct
+   - Regenerate icon: `python generate_icon.py`
+   - Clear icon cache: `ie4uinit.exe -show`
+
+3. **Antivirus Blocking**
+   - Add exception for PyInstaller
+   - Temporarily disable antivirus during build
+   - Use trusted Python distribution
+
+### Distribution Guidelines
+
+#### macOS Distribution
+
+1. Test the app bundle:
+   ```bash
+   # Verify app bundle contents
+   ls -la dist/app.app/Contents/MacOS/
+   # Check code signing
+   codesign -vv dist/app.app
+   ```
+
+2. Optional: Code sign the application:
+   ```bash
+   codesign --sign "Developer ID" dist/app.app
+   ```
+
+#### Windows Distribution
+
+1. Test the executable:
+   ```cmd
+   # Verify executable
+   dist\app.exe
+   # Check version info
+   sigcheck dist\app.exe
+   ```
+
+2. Optional: Sign the executable:
+   ```cmd
+   signtool sign /f certificate.pfx /p password app.exe
+   ```
 
 ## Directory Structure
 
@@ -160,6 +288,10 @@ bill-generator/
 ├── app.py              # Main application file
 ├── requirements.txt    # Python dependencies
 ├── README.md          # This file
+├── generate_icon.py   # Icon generation script
+├── icons/             # Application icons
+│   ├── app.ico       # Windows icon
+│   └── app_icon.png  # PNG version of icon
 ├── signatures/        # Directory for invoice signatures
 ├── dist/             # Build output directory
 └── build/            # Build temporary files
@@ -220,6 +352,11 @@ bill-generator/
    - Try updating packages: `pip install --upgrade -r requirements.txt`
    - Check Python version compatibility
 
+5. **Icon Generation Issues**
+   - Ensure Pillow is installed: `pip install Pillow`
+   - Check if the icons directory exists and has write permissions
+   - Try running the icon generation script again
+
 ### Getting Help
 
 If you encounter any issues:
@@ -227,5 +364,6 @@ If you encounter any issues:
 2. Review the console output for detailed errors
 3. Ensure all dependencies are installed correctly
 4. Check if you have the latest version of the application
+
 
 
