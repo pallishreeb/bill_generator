@@ -20,6 +20,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import Image
 from fpdf import FPDF
 from num2words import num2words
+import pandas as pd
 
 
 def amount_to_words(amount):
@@ -1418,6 +1419,11 @@ class DisplayBillsTab(QWidget):
         delete_btn.clicked.connect(self.delete_invoice)
         btn_layout.addWidget(delete_btn)
         
+        # Export to Excel button
+        export_btn = QPushButton("Export to Excel")
+        export_btn.clicked.connect(self.export_to_excel)
+        btn_layout.addWidget(export_btn)
+        
         # Add some spacing
         btn_layout.addStretch()
         
@@ -1439,6 +1445,65 @@ class DisplayBillsTab(QWidget):
         layout.addWidget(self.table)
         
         self.setLayout(layout)
+
+    def export_to_excel(self):
+        # Show loading screen
+        loading = LoadingScreen("Preparing Excel Export...", self)
+        loading.show()
+        QApplication.processEvents()
+
+        try:
+            # Get all invoices with details
+            invoices = self.db_manager.get_all_invoices()
+            
+            # Create a list to store all invoice data
+            excel_data = []
+            
+            for invoice in invoices:
+                # Get detailed invoice information
+                invoice_details = self.db_manager.get_invoice_by_bill_number(invoice['bill_number'])
+                if invoice_details:
+                    # Add invoice header information
+                    for item in invoice_details['items']:
+                        excel_data.append({
+                            'Bill Number': invoice['bill_number'],
+                            'Date': invoice['bill_date'],
+                            'Bill To': invoice['bill_to_name'],
+                            'Bill To GST': invoice_details['bill_to_gst'],
+                            'Ship To': invoice['ship_to_name'],
+                            'Ship To GST': invoice_details['ship_to_gst'],
+                            'Ship From': invoice['ship_from_name'],
+                            'Ship From GST': invoice_details['ship_from_gst'],
+                            'SKU': item['sku_code'],
+                            'Product': item['product_name'],
+                            'HSN': item['hsn_code'],
+                            'Quantity': item['quantity'],
+                            'Price per Unit': item['price_per_unit'],
+                            'Amount': item['amount'],
+                            'Total Amount': invoice['total_amount'],
+                            'Advance Amount': invoice['advance_amount']
+                        })
+            
+            # Create DataFrame
+            df = pd.DataFrame(excel_data)
+            
+            # Ask user where to save the Excel file
+            save_path, _ = QFileDialog.getSaveFileName(
+                self, "Save Excel File", "", "Excel Files (*.xlsx)"
+            )
+            
+            if save_path:
+                if not save_path.endswith('.xlsx'):
+                    save_path += '.xlsx'
+                
+                # Save to Excel
+                df.to_excel(save_path, index=False, engine='openpyxl')
+                QMessageBox.information(self, "Success", f"Data exported successfully to {save_path}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to export data: {str(e)}")
+        finally:
+            loading.close()
 
     def load_invoices(self):
         # Show loading screen
