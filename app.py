@@ -566,43 +566,33 @@ class DatabaseManager:
         cursor = conn.cursor()
         
         try:
-            # Get the current date
-            today = datetime.datetime.now().strftime('%Y%m%d')
-            
-            # Get the last bill number for today
+            # Get the last bill number from all invoices
             cursor.execute('''
             SELECT bill_number 
             FROM invoices 
-            WHERE bill_number LIKE ? 
-            ORDER BY bill_number DESC 
+            ORDER BY id DESC 
             LIMIT 1
-            ''', (f"INV-{today}-%",))
+            ''')
             
             result = cursor.fetchone()
             
             if result:
                 # Extract the sequence number from the last bill number
-                last_sequence = int(result['bill_number'].split('-')[-1])
-                next_sequence = last_sequence + 1
+                # Format is "INV-XXXX" where XXXX is the number
+                last_number = int(result['bill_number'].split('-')[1])
+                next_number = last_number + 1
             else:
-                # If no bills for today, start with 1
-                next_sequence = 1
+                # If no bills exist, start with 1
+                next_number = 1
             
-            # Format: INV-YYYYMMDD-XXXX
-            bill_number = f"INV-{today}-{next_sequence:04d}"
-            
-            # Double-check if this number exists (race condition check)
-            cursor.execute('SELECT COUNT(*) FROM invoices WHERE bill_number = ?', (bill_number,))
-            if cursor.fetchone()[0] > 0:
-                # If exists, try the next number
-                bill_number = f"INV-{today}-{(next_sequence + 1):04d}"
+            # Format: INV-XXXX (4 digits)
+            bill_number = f"INV-{next_number:04d}"
             
             return bill_number
             
         except Exception as e:
-            # If any error occurs, return a timestamp-based number
-            timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-            return f"INV-{timestamp}"
+            # If any error occurs, start with INV-0001
+            return "INV-0001"
         finally:
             conn.close()
     
