@@ -3,14 +3,14 @@ import os
 import sqlite3
 import datetime
 from datetime import date
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QSettings, QSize
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, 
                              QHBoxLayout, QFormLayout, QLineEdit, QLabel, QPushButton, 
                              QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
                              QFileDialog, QDateEdit, QSpinBox, QDoubleSpinBox, QGroupBox,
                              QScrollArea, QFrame, QGridLayout, QComboBox, QDialog, QTextEdit,
-                             QProgressBar,QDialogButtonBox)
-from PyQt5.QtGui import QPixmap, QFont, QIcon
+                             QProgressBar, QDialogButtonBox, QAction, QToolBar)
+from PyQt5.QtGui import QPixmap, QFont, QIcon, QPalette, QColor
 from PyQt5.QtCore import Qt, QTimer, QDate
 from PyQt5.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog
 from reportlab.lib.pagesizes import A4
@@ -292,9 +292,9 @@ def generate_bill_pdf(data, filename="invoice_static.pdf"):
     return filename
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+    """Get absolute path to resource, works for dev and for PyInstaller"""
     try:
-        # If PyInstaller used
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
@@ -830,8 +830,21 @@ class InvoiceItem(QFrame):
         layout.addWidget(self.amount, 0, 6)
         
         # Remove button
-        self.remove_btn = QPushButton("X")
-        self.remove_btn.setFixedWidth(30)
+        self.remove_btn = QPushButton("✕")  # Using a unicode X symbol
+        self.remove_btn.setFixedSize(30, 30)  # Make it square and larger
+        self.remove_btn.setFont(QFont("Arial", 14))  # Larger font
+        self.remove_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ff4444;
+                color: white;
+                border: none;
+                border-radius: 15px;
+                padding: 5px;
+            }
+            QPushButton:hover {
+                background-color: #ff6666;
+            }
+        """)
         self.remove_btn.clicked.connect(self.remove_item)
         layout.addWidget(self.remove_btn, 0, 7)
         
@@ -984,9 +997,18 @@ class GenerateBillTab(QWidget):
         # === Product Section ===
         product_group = QGroupBox("Product Section")
         product_layout = QVBoxLayout()
+        product_layout.setSpacing(10)  # Add spacing between elements
+        
+        # Add spacing after the group box title
+        product_layout.addSpacing(10)  # Add extra space at the top
         
         # Headers
         header_layout = QGridLayout()
+        header_layout.setSpacing(5)  # Add spacing between header items
+        header_widget = QWidget()
+        header_widget.setLayout(header_layout)
+        header_widget.setStyleSheet("margin-top: 10px;")  # Add margin to the header widget
+        
         header_layout.addWidget(QLabel("S.No"), 0, 0)
         header_layout.addWidget(QLabel("SKU Code"), 0, 1)
         header_layout.addWidget(QLabel("Product Name"), 0, 2)
@@ -995,7 +1017,10 @@ class GenerateBillTab(QWidget):
         header_layout.addWidget(QLabel("Price per Unit"), 0, 5)
         header_layout.addWidget(QLabel("Amount"), 0, 6)
         header_layout.addWidget(QLabel(""), 0, 7)
-        product_layout.addLayout(header_layout)
+        product_layout.addWidget(header_widget)
+        
+        # Add spacing after headers
+        product_layout.addSpacing(5)  # Add space between headers and scrollable area
         
         # Scrollable area for product items
         self.product_scroll = QScrollArea()
@@ -1092,7 +1117,15 @@ class GenerateBillTab(QWidget):
 
         # Create QLabel to show the PDF save path
         self.pdf_path_label = QLabel("", self)
-        self.pdf_path_label.setStyleSheet("color: white; font-size: 14pt;")
+        self.pdf_path_label.setStyleSheet("""
+            QLabel {
+                color: #666666;
+                font-size: 12pt;
+                padding: 5px;
+                background-color: rgba(255, 255, 255, 0.1);
+                border-radius: 3px;
+            }
+        """)
         self.pdf_path_label.setGeometry(10, self.height() - 30, self.width() - 20, 20)
         self.pdf_path_label.setAlignment(Qt.AlignLeft)
         main_layout.addWidget(self.pdf_path_label)
@@ -1318,12 +1351,17 @@ class GenerateBillTab(QWidget):
         signature_path = self.signature_path
         if not signature_path:
             # Use default signature if none is selected
-            default_signature = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Signature.png")
+            default_signature = os.path.join(os.path.dirname(os.path.abspath(__file__)), "signatures", "Signature.png")
             if os.path.exists(default_signature):
                 signature_path = default_signature
             else:
-                QMessageBox.warning(self, "Warning", "Default signature file not found. Please add a signature.")
-                return None
+                # Try alternative path
+                alt_signature = os.path.join("signatures", "Signature.png")
+                if os.path.exists(alt_signature):
+                    signature_path = alt_signature
+                else:
+                    QMessageBox.warning(self, "Warning", f"Default signature file not found at:\n{default_signature}\nor\n{alt_signature}\nPlease add a signature.")
+                    return None
 
         return get_dynamic_invoice_data(
             bill_to=f"{self.bill_to_name.text()}\n{self.bill_to_address.toPlainText()}\nGSTIN: {self.bill_to_gst.text()}",
@@ -2144,22 +2182,263 @@ class ManageProductsTab(QWidget):
             finally:
                 loading.close()
 
+class ThemeManager:
+    def __init__(self):
+        self.settings = QSettings('KrozTek', 'InvoiceManager')
+        self.dark_palette = QPalette()
+        self.light_palette = QPalette()
+        self.setup_palettes()
+
+    def setup_palettes(self):
+        # Dark theme palette
+        self.dark_palette.setColor(QPalette.Window, QColor(53, 53, 53))
+        self.dark_palette.setColor(QPalette.WindowText, QColor(255, 255, 255))
+        self.dark_palette.setColor(QPalette.Base, QColor(42, 42, 42))
+        self.dark_palette.setColor(QPalette.AlternateBase, QColor(66, 66, 66))
+        self.dark_palette.setColor(QPalette.ToolTipBase, QColor(255, 255, 255))
+        self.dark_palette.setColor(QPalette.ToolTipText, QColor(255, 255, 255))
+        self.dark_palette.setColor(QPalette.Text, QColor(255, 255, 255))
+        self.dark_palette.setColor(QPalette.Button, QColor(53, 53, 53))
+        self.dark_palette.setColor(QPalette.ButtonText, QColor(255, 255, 255))
+        self.dark_palette.setColor(QPalette.BrightText, QColor(255, 0, 0))
+        self.dark_palette.setColor(QPalette.Link, QColor(42, 130, 218))
+        self.dark_palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
+        self.dark_palette.setColor(QPalette.HighlightedText, QColor(255, 255, 255))
+
+        # Light theme palette
+        self.light_palette.setColor(QPalette.Window, QColor(240, 240, 240))
+        self.light_palette.setColor(QPalette.WindowText, QColor(0, 0, 0))
+        self.light_palette.setColor(QPalette.Base, QColor(255, 255, 255))
+        self.light_palette.setColor(QPalette.AlternateBase, QColor(245, 245, 245))
+        self.light_palette.setColor(QPalette.ToolTipBase, QColor(255, 255, 255))
+        self.light_palette.setColor(QPalette.ToolTipText, QColor(0, 0, 0))
+        self.light_palette.setColor(QPalette.Text, QColor(0, 0, 0))
+        self.light_palette.setColor(QPalette.Button, QColor(240, 240, 240))
+        self.light_palette.setColor(QPalette.ButtonText, QColor(0, 0, 0))
+        self.light_palette.setColor(QPalette.BrightText, QColor(255, 0, 0))
+        self.light_palette.setColor(QPalette.Link, QColor(0, 0, 255))
+        self.light_palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
+        self.light_palette.setColor(QPalette.HighlightedText, QColor(255, 255, 255))
+
+    def get_stylesheet(self, is_dark):
+        common_styles = """
+            QToolBar {
+                border: none;
+                padding: 5px;
+            }
+            QToolBar QToolButton {
+                padding: 5px;
+                border-radius: 3px;
+            }
+            QComboBox QAbstractItemView {
+                selection-background-color: #404040;
+                selection-color: white;
+            }
+            QComboBox::item:selected {
+                background-color: #404040;
+                color: white;
+            }
+            QComboBox::item:hover {
+                background-color: #505050;
+                color: white;
+            }
+        """
+
+        if is_dark:
+            return common_styles + """
+                QMainWindow, QDialog {
+                    background-color: #353535;
+                }
+                QTabWidget::pane {
+                    border: 1px solid #2a2a2a;
+                    background-color: #353535;
+                }
+                QTabBar::tab {
+                    background-color: #2a2a2a;
+                    color: #ffffff;
+                    padding: 8px 20px;
+                    border-top-left-radius: 4px;
+                    border-top-right-radius: 4px;
+                }
+                QTabBar::tab:selected {
+                    background-color: #404040;
+                }
+                QPushButton {
+                    background-color: #2a2a2a;
+                    color: #ffffff;
+                    border: 1px solid #404040;
+                    padding: 5px 15px;
+                    border-radius: 3px;
+                }
+                QPushButton:hover {
+                    background-color: #404040;
+                }
+                QTableWidget {
+                    background-color: #2a2a2a;
+                    color: #ffffff;
+                    gridline-color: #404040;
+                }
+                QHeaderView::section {
+                    background-color: #404040;
+                    color: #ffffff;
+                    padding: 5px;
+                }
+                QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QDateEdit, QComboBox {
+                    background-color: #2a2a2a;
+                    color: #ffffff;
+                    border: 1px solid #404040;
+                    padding: 3px;
+                    border-radius: 2px;
+                }
+                QGroupBox {
+                    border: 1px solid #404040;
+                    margin-top: 10px;
+                    color: #ffffff;
+                }
+                QGroupBox::title {
+                    color: #ffffff;
+                }
+                QToolBar {
+                    background-color: #2a2a2a;
+                }
+                QToolBar QToolButton {
+                    background-color: #353535;
+                    color: white;
+                }
+                QToolBar QToolButton:hover {
+                    background-color: #404040;
+                }
+            """
+        else:
+            return common_styles + """
+                QMainWindow, QDialog {
+                    background-color: #f0f0f0;
+                }
+                QTabWidget::pane {
+                    border: 1px solid #d0d0d0;
+                }
+                QTabBar::tab {
+                    background-color: #e0e0e0;
+                    padding: 8px 20px;
+                    border-top-left-radius: 4px;
+                    border-top-right-radius: 4px;
+                }
+                QTabBar::tab:selected {
+                    background-color: #f0f0f0;
+                }
+                QPushButton {
+                    background-color: #e0e0e0;
+                    border: 1px solid #d0d0d0;
+                    padding: 5px 15px;
+                    border-radius: 3px;
+                }
+                QPushButton:hover {
+                    background-color: #d0d0d0;
+                }
+                QTableWidget {
+                    gridline-color: #d0d0d0;
+                }
+                QHeaderView::section {
+                    background-color: #e0e0e0;
+                    padding: 5px;
+                }
+                QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QDateEdit, QComboBox {
+                    background-color: white;
+                    border: 1px solid #d0d0d0;
+                    padding: 3px;
+                    border-radius: 2px;
+                }
+                QGroupBox {
+                    border: 1px solid #d0d0d0;
+                    margin-top: 10px;
+                }
+                QToolBar {
+                    background-color: #e0e0e0;
+                }
+                QToolBar QToolButton {
+                    background-color: #f0f0f0;
+                    color: black;
+                }
+                QToolBar QToolButton:hover {
+                    background-color: #d0d0d0;
+                }
+            """
+
+    def apply_theme(self, app, is_dark):
+        app.setPalette(self.dark_palette if is_dark else self.light_palette)
+        app.setStyleSheet(self.get_stylesheet(is_dark))
+        self.settings.setValue('dark_mode', is_dark)
+
+    def is_dark_mode(self):
+        return self.settings.value('dark_mode', False, type=bool)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.db_manager = DatabaseManager()
+        self.theme_manager = ThemeManager()
         
         self.setWindowTitle("Invoice Management System")
         self.setGeometry(100, 100, 1200, 800)
         
-        # Create tabs
-        tabs = QTabWidget()
-        tabs.addTab(GenerateBillTab(self.db_manager), "Generate Bill")
-        tabs.addTab(DisplayBillsTab(self.db_manager), "Display Bills")
-        tabs.addTab(ManageClientsTab(self.db_manager), "Manage Clients")
-        tabs.addTab(ManageProductsTab(self.db_manager), "Manage Products")
+        # Create main widget
+        main_widget = QWidget()
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
         
-        self.setCentralWidget(tabs)
+        # Create tabs
+        self.tabs = QTabWidget()
+        
+        # Create theme toggle button
+        self.theme_action = QPushButton()
+        self.theme_action.setCheckable(True)
+        self.theme_action.setChecked(self.theme_manager.is_dark_mode())
+        self.theme_action.clicked.connect(self.toggle_theme)
+        self.theme_action.setFixedSize(28, 28)  # Even smaller size
+        self.theme_action.setStyleSheet("""
+            QPushButton {
+                border: none;
+                padding: 4px;
+                border-radius: 3px;
+                margin: 2px 8px 0px 0px;
+            }
+        """)
+        
+        # Add the theme button to the tab corner
+        self.tabs.setCornerWidget(self.theme_action, Qt.TopRightCorner)
+        
+        # Add tabs
+        self.tabs.addTab(GenerateBillTab(self.db_manager), "Generate Bill")
+        self.tabs.addTab(DisplayBillsTab(self.db_manager), "Display Bills")
+        self.tabs.addTab(ManageClientsTab(self.db_manager), "Manage Clients")
+        self.tabs.addTab(ManageProductsTab(self.db_manager), "Manage Products")
+        
+        main_layout.addWidget(self.tabs)
+        self.setCentralWidget(main_widget)
+        
+        # Update theme button icon and apply initial theme
+        self.update_theme_icon()
+        self.apply_current_theme()
+
+    def toggle_theme(self):
+        is_dark = self.theme_action.isChecked()
+        self.theme_manager.apply_theme(QApplication.instance(), is_dark)
+        self.update_theme_icon()
+
+    def update_theme_icon(self):
+        is_dark = self.theme_action.isChecked()
+        icon_path = resource_path("icons/moon.png" if is_dark else "icons/sun.png")
+        if os.path.exists(icon_path):
+            self.theme_action.setIcon(QIcon(icon_path))
+            self.theme_action.setIconSize(QSize(20, 20))  # Smaller icon size
+        self.theme_action.setToolTip("Dark Mode" if is_dark else "Light Mode")
+
+    def apply_current_theme(self):
+        is_dark = self.theme_manager.is_dark_mode()
+        self.theme_action.setChecked(is_dark)
+        self.theme_manager.apply_theme(QApplication.instance(), is_dark)
+        self.update_theme_icon()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
