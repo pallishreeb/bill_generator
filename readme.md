@@ -13,6 +13,7 @@ A cross-platform desktop application for generating and managing invoices with G
 - Signature support for invoices
 - Advance payment tracking
 - Modern and intuitive user interface
+- Light and Dark theme support with persistent settings
 
 ## Prerequisites
 
@@ -329,6 +330,20 @@ bill-generator/
 2. Click "Export to Excel"
 3. Choose save location
 4. Excel file will contain all invoice data
+
+### Theme Customization
+
+1. **Switching Themes**
+   - Click the "Toggle Theme" button in the toolbar
+   - Choose between Light and Dark modes
+   - Theme preference is automatically saved
+   - Applies instantly to all windows and dialogs
+
+2. **Theme Features**
+   - Professional color schemes for both modes
+   - High contrast for better readability
+   - Consistent styling across all components
+   - Automatic preference saving between sessions
 
 ## Troubleshooting
 
